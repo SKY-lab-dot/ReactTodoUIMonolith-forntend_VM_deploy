@@ -4,7 +4,7 @@ resource "azurerm_resource_group" "rg" {
 }
 
 resource "azurerm_storage_account" "storage" {
-  name                     = "stname123432"
+  name                     = "stname123432@12"
   resource_group_name      = "sit"
   location                 = "Central india"
   account_tier             = "Standard"
