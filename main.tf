@@ -4,9 +4,9 @@ resource "azurerm_resource_group" "rg" {
 }
 
 resource "azurerm_storage_account" "storage" {
-  name                     = "sitterraformstate2026"
+  name                     = "stname123432"
   resource_group_name      = "sit"
-  location                 = "Central india"
+  location                 = "Central India"
   account_tier             = "Standard"
   account_replication_type = "LRS"
 }
