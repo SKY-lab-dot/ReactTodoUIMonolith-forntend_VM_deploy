@@ -1,0 +1,9 @@
+name: azurelandingzoneYMALpipeline
+'trigger:
+- main
+
+pool: 
+  name: shailesh
+
+steps:
+- script: "Hello world!"
