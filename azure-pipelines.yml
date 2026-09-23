@@ -1,9 +1,67 @@
 name: azurelandingzoneYMALpipeline
-'trigger:
+
+trigger:
 - main
 
-pool: 
-  name: shailesh
+pool:
+  name: Azurecicd
 
 steps:
-- script: "Hello world!"
+
+- checkout: self
+
+- task: AzureCLI@3
+  displayName: 'Azure CLI Login'
+  inputs:
+    connectionType: 'azureRM'
+    azureSubscription: 'shailesh'
+    scriptType: 'ps'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      az account show
+      az group list --output table
+
+- task: TerraformInstaller@1
+  displayName: 'Terraform Install'
+  inputs:
+    terraformVersion: 'latest'
+
+- task: TerraformTask@5
+  displayName: 'Terraform Init'
+  inputs:
+    provider: 'azurerm'
+    command: 'init'
+    backendServiceArm: 'shailesh'
+    backendAzureRmResourceGroupName: 'sit'
+    backendAzureRmStorageAccountName: 'sitterraformstate2026'
+    backendAzureRmContainerName: 'tfstate'
+    backendAzureRmKey: 'sit.terraform.tfstate'
+
+- task: TerraformTask@5
+  displayName: 'Terraform Validate'
+  inputs:
+    provider: 'azurerm'
+    command: 'validate'
+
+- task: TerraformTask@5
+  displayName: 'Terraform Plan'
+  inputs:
+    provider: 'azurerm'
+    command: 'plan'
+    environmentServiceNameAzureRM: 'shailesh'
+
+- task: TerraformTask@5
+  displayName: 'Terraform Show'
+  inputs:
+    provider: 'azurerm'
+    command: 'show'
+    outputTo: 'console'
+    outputFormat: 'default'
+    environmentServiceNameAzureRM: 'shailesh'
+
+- task: TerraformTask@5
+  displayName: 'Terraform Apply'
+  inputs:
+    provider: 'azurerm'
+    command: 'apply'
+    environmentServiceNameAzureRM: 'shailesh'
