@@ -3,65 +3,106 @@ name: azurelandingzoneYMALpipeline
 trigger:
 - main
 
-pool:
-  name: Azurecicd
+jobs:
 
-steps:
+# =========================
+# CI JOB
+# =========================
+- job: ci
+  displayName: 'Terraform CI'
 
-- checkout: self
+  pool:
+    name: Azurecicd
 
-- task: AzureCLI@3
-  displayName: 'Azure CLI Login'
-  inputs:
-    connectionType: 'azureRM'
-    azureSubscription: 'shailesh'
-    scriptType: 'ps'
-    scriptLocation: 'inlineScript'
-    inlineScript: |
-      az account show
-      az group list --output table
+  steps:
 
-- task: TerraformInstaller@1
-  displayName: 'Terraform Install'
-  inputs:
-    terraformVersion: 'latest'
+  - checkout: self
 
-- task: TerraformTask@5
-  displayName: 'Terraform Init'
-  inputs:
-    provider: 'azurerm'
-    command: 'init'
-    backendServiceArm: 'shailesh'
-    backendAzureRmResourceGroupName: 'sit'
-    backendAzureRmStorageAccountName: 'sitterraformstate2026'
-    backendAzureRmContainerName: 'tfstate'
-    backendAzureRmKey: 'sit.terraform.tfstate'
+  - task: AzureCLI@3
+    displayName: 'Azure CLI Login'
+    inputs:
+      connectionType: 'azureRM'
+      azureSubscription: 'shailesh'
+      scriptType: 'ps'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        az account show
+        az group list --output table
 
-- task: TerraformTask@5
-  displayName: 'Terraform Validate'
-  inputs:
-    provider: 'azurerm'
-    command: 'validate'
+  - task: TerraformInstaller@1
+    displayName: 'Terraform Install'
+    inputs:
+      terraformVersion: 'latest'
 
-- task: TerraformTask@5
-  displayName: 'Terraform Plan'
-  inputs:
-    provider: 'azurerm'
-    command: 'plan'
-    environmentServiceNameAzureRM: 'shailesh'
+  - task: TerraformTask@5
+    displayName: 'Terraform Init'
+    inputs:
+      provider: 'azurerm'
+      command: 'init'
+      backendServiceArm: 'shailesh'
+      backendAzureRmResourceGroupName: 'sit'
+      backendAzureRmStorageAccountName: 'sitterraformstate2026'
+      backendAzureRmContainerName: 'tfstate'
+      backendAzureRmKey: 'sit.terraform.tfstate'
 
-- task: TerraformTask@5
-  displayName: 'Terraform Show'
-  inputs:
-    provider: 'azurerm'
-    command: 'show'
-    outputTo: 'console'
-    outputFormat: 'default'
-    environmentServiceNameAzureRM: 'shailesh'
+  - task: TerraformTask@5
+    displayName: 'Terraform Validate'
+    inputs:
+      provider: 'azurerm'
+      command: 'validate'
 
-- task: TerraformTask@5
-  displayName: 'Terraform Apply'
-  inputs:
-    provider: 'azurerm'
-    command: 'apply'
-    environmentServiceNameAzureRM: 'shailesh'
+  - task: TerraformTask@5
+    displayName: 'Terraform Plan'
+    inputs:
+      provider: 'azurerm'
+      command: 'plan'
+      environmentServiceNameAzureRM: 'shailesh'
+
+
+# =========================
+# CD JOB
+# =========================
+- job: cd
+  displayName: 'Terraform CD'
+  dependsOn: ci
+  condition: succeeded()
+
+  pool:
+    name: Azurecicd
+
+  steps:
+
+  - checkout: self
+
+  - task: AzureCLI@3
+    displayName: 'Azure CLI Login - CD'
+    inputs:
+      connectionType: 'azureRM'
+      azureSubscription: 'shailesh'
+      scriptType: 'ps'
+      scriptLocation: 'inlineScript'
+      inlineScript: |
+        az account show
+
+  - task: TerraformInstaller@1
+    displayName: 'Terraform Install'
+    inputs:
+      terraformVersion: 'latest'
+
+  - task: TerraformTask@5
+    displayName: 'Terraform Init - CD'
+    inputs:
+      provider: 'azurerm'
+      command: 'init'
+      backendServiceArm: 'shailesh'
+      backendAzureRmResourceGroupName: 'sit'
+      backendAzureRmStorageAccountName: 'sitterraformstate2026'
+      backendAzureRmContainerName: 'tfstate'
+      backendAzureRmKey: 'sit.terraform.tfstate'
+
+  - task: TerraformTask@5
+    displayName: 'Terraform Apply'
+    inputs:
+      provider: 'azurerm'
+      command: 'apply'
+      environmentServiceNameAzureRM: 'shailesh'
