@@ -40,7 +40,7 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
-          Set-Location "$(System.DefaultWorkingDirectory)\Azure-Landing-Zone-Terraform_VM\Parent_Module\dev"
+          Set-Location "$(System.DefaultWorkingDirectory)\Parent_Module\dev"
 
           Write-Host "Working Directory:"
           Get-Location
@@ -67,7 +67,7 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
-          Set-Location "$(System.DefaultWorkingDirectory)\Azure-Landing-Zone-Terraform_VM\Parent_Module\dev"
+          Set-Location "$(System.DefaultWorkingDirectory)\Parent_Module\dev"
 
           terraform validate
 
@@ -80,7 +80,7 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
-          Set-Location "$(System.DefaultWorkingDirectory)\Azure-Landing-Zone-Terraform_VM\Parent_Module\dev"
+          Set-Location "$(System.DefaultWorkingDirectory)\Parent_Module\dev"
 
           terraform plan `
             -input=false `
@@ -156,7 +156,7 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
-          Set-Location "$(System.DefaultWorkingDirectory)\Azure-Landing-Zone-Terraform_VM\Parent_Module\dev"
+          Set-Location "$(System.DefaultWorkingDirectory)\Parent_Module\dev"
 
           Write-Host "Terraform Version:"
           terraform version
@@ -180,7 +180,7 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
-          Set-Location "$(System.DefaultWorkingDirectory)\Azure-Landing-Zone-Terraform_VM\Parent_Module\dev"
+          Set-Location "$(System.DefaultWorkingDirectory)\Parent_Module\dev"
 
           terraform apply `
             -input=false `
