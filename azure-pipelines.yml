@@ -16,21 +16,12 @@ stages:
   displayName: 'Terraform CI'
 
   jobs:
-
   - job: CIWork
     displayName: 'Terraform CI Work'
 
     steps:
 
-    # --------------------------------------------------------
-    # Checkout Repository
-    # --------------------------------------------------------
-
     - checkout: self
-
-    # --------------------------------------------------------
-    # Azure CLI Login - Workload Identity Federation
-    # --------------------------------------------------------
 
     - task: AzureCLI@3
       displayName: 'Azure CLI Login'
@@ -43,43 +34,29 @@ stages:
           az account show
           az group list --output table
 
-    # --------------------------------------------------------
-    # Terraform Install
-    # --------------------------------------------------------
-
     - task: TerraformInstaller@1
       displayName: 'Terraform Install'
       inputs:
         terraformVersion: 'latest'
-
-    # --------------------------------------------------------
-    # Terraform Init
-    # --------------------------------------------------------
 
     - task: TerraformTask@5
       displayName: 'Terraform Init'
       inputs:
         provider: 'azurerm'
         command: 'init'
+        workingDirectory: '$(System.DefaultWorkingDirectory)/Azure-Landing-Zone-Terraform_VM/Parent_Module/dev'
         backendServiceArm: 'shailesh'
         backendAzureRmResourceGroupName: 'sit'
         backendAzureRmStorageAccountName: 'sitterraformstate2026'
         backendAzureRmContainerName: 'tfstate'
         backendAzureRmKey: 'sit.terraform.tfstate'
 
-    # --------------------------------------------------------
-    # Terraform Validate
-    # --------------------------------------------------------
-
     - task: TerraformTask@5
       displayName: 'Terraform Validate'
       inputs:
         provider: 'azurerm'
         command: 'validate'
-
-    # --------------------------------------------------------
-    # Terraform Plan
-    # --------------------------------------------------------
+        workingDirectory: '$(System.DefaultWorkingDirectory)/Azure-Landing-Zone-Terraform_VM/Parent_Module/dev'
 
     - task: TerraformTask@5
       displayName: 'Terraform Plan'
@@ -87,12 +64,8 @@ stages:
         provider: 'azurerm'
         command: 'plan'
         environmentServiceNameAzureRM: 'shailesh'
-        workingDirectory: '$(System.DefaultWorkingDirectory)'
-        commandOptions: '-input=false -out="$(Build.ArtifactStagingDirectory)/tfplan"'
-
-    # --------------------------------------------------------
-    # Check Plan File
-    # --------------------------------------------------------
+        workingDirectory: '$(System.DefaultWorkingDirectory)/Azure-Landing-Zone-Terraform_VM/Parent_Module/dev'
+        commandOptions: '-input=false -out="$(Build.ArtifactStagingDirectory)/tfplan'
 
     - task: PowerShell@2
       displayName: 'Check Terraform Plan File'
@@ -101,10 +74,6 @@ stages:
         script: |
           Write-Host "Checking Terraform plan file..."
           Get-ChildItem "$(Build.ArtifactStagingDirectory)" -Recurse
-
-    # --------------------------------------------------------
-    # Publish Terraform Plan Artifact
-    # --------------------------------------------------------
 
     - task: PublishBuildArtifacts@1
       displayName: 'Publish Terraform Plan'
@@ -122,25 +91,15 @@ stages:
   displayName: 'Terraform CD'
 
   dependsOn: CI
-
   condition: succeeded()
 
   jobs:
-
   - job: CDWork
     displayName: 'Terraform CD Work'
 
     steps:
 
-    # --------------------------------------------------------
-    # Checkout Repository
-    # --------------------------------------------------------
-
     - checkout: self
-
-    # --------------------------------------------------------
-    # Download Terraform Plan Artifact
-    # --------------------------------------------------------
 
     - task: DownloadBuildArtifacts@1
       displayName: 'Download Terraform Plan'
@@ -150,10 +109,6 @@ stages:
         artifactName: 'terraform-plan'
         downloadPath: '$(Pipeline.Workspace)'
 
-    # --------------------------------------------------------
-    # Check Downloaded Plan
-    # --------------------------------------------------------
-
     - task: PowerShell@2
       displayName: 'Check Downloaded Terraform Plan'
       inputs:
@@ -161,10 +116,6 @@ stages:
         script: |
           Write-Host "Downloaded Terraform plan:"
           Get-ChildItem "$(Pipeline.Workspace)" -Recurse
-
-    # --------------------------------------------------------
-    # Azure CLI Login - Workload Identity Federation
-    # --------------------------------------------------------
 
     - task: AzureCLI@3
       displayName: 'Azure CLI Login CD'
@@ -177,33 +128,22 @@ stages:
           az account show
           az group list --output table
 
-    # --------------------------------------------------------
-    # Terraform Install
-    # --------------------------------------------------------
-
     - task: TerraformInstaller@1
       displayName: 'Terraform Install'
       inputs:
         terraformVersion: 'latest'
-
-    # --------------------------------------------------------
-    # Terraform Init CD
-    # --------------------------------------------------------
 
     - task: TerraformTask@5
       displayName: 'Terraform Init CD'
       inputs:
         provider: 'azurerm'
         command: 'init'
+        workingDirectory: '$(System.DefaultWorkingDirectory)/Azure-Landing-Zone-Terraform_VM/Parent_Module/dev'
         backendServiceArm: 'shailesh'
         backendAzureRmResourceGroupName: 'sit'
         backendAzureRmStorageAccountName: 'sitterraformstate2026'
         backendAzureRmContainerName: 'tfstate'
         backendAzureRmKey: 'sit.terraform.tfstate'
-
-    # --------------------------------------------------------
-    # Terraform Apply - Same Plan From CI
-    # --------------------------------------------------------
 
     - task: TerraformTask@5
       displayName: 'Terraform Apply'
@@ -211,5 +151,5 @@ stages:
         provider: 'azurerm'
         command: 'apply'
         environmentServiceNameAzureRM: 'shailesh'
-        workingDirectory: '$(System.DefaultWorkingDirectory)'
+        workingDirectory: '$(System.DefaultWorkingDirectory)/Azure-Landing-Zone-Terraform_VM/Parent_Module/dev'
         commandOptions: '"$(Pipeline.Workspace)/terraform-plan/tfplan"'
