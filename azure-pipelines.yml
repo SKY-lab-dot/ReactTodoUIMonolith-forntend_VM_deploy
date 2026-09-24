@@ -3,104 +3,187 @@ name: azurelandingzoneYMALpipeline
 trigger:
 - main
 
-schedules:
-- cron: "30 4 * * *"
-  displayName: 'Daily Terraform Run - 10 AM IST'
-  branches:
-    include:
-    - main
-  always: true
+pool:
+  name: Azurecicd
 
-jobs:
-- job: ci
+stages:
+
+# ============================================================
+# CI STAGE
+# ============================================================
+
+- stage: CI
   displayName: 'Terraform CI'
 
-  pool:
-    name: Azurecicd
+  jobs:
 
-  steps:
-  - checkout: self
+  - job: CIWork
+    displayName: 'Terraform CI Work'
 
-  - task: AzureCLI@3
-    displayName: 'Azure CLI Login'
-    inputs:
-      connectionType: 'azureRM'
-      azureSubscription: 'shailesh'
-      scriptType: 'ps'
-      scriptLocation: 'inlineScript'
-      inlineScript: |
-        az account show
-        az group list --output table
+    steps:
 
-  - task: TerraformInstaller@1
-    displayName: 'Terraform Install'
-    inputs:
-      terraformVersion: 'latest'
+    # --------------------------------------------------------
+    # Checkout Repository
+    # --------------------------------------------------------
 
-  - task: TerraformTask@5
-    displayName: 'Terraform Init'
-    inputs:
-      provider: 'azurerm'
-      command: 'init'
-      backendServiceArm: 'shailesh'
-      backendAzureRmResourceGroupName: 'sit'
-      backendAzureRmStorageAccountName: 'sitterraformstate2026'
-      backendAzureRmContainerName: 'tfstate'
-      backendAzureRmKey: 'sit.terraform.tfstate'
+    - checkout: self
 
-  - task: TerraformTask@5
-    displayName: 'Terraform Validate'
-    inputs:
-      provider: 'azurerm'
-      command: 'validate'
+    # --------------------------------------------------------
+    # Azure Login - Workload Identity Federation
+    # --------------------------------------------------------
 
-  - task: TerraformTask@5
-    displayName: 'Terraform Plan'
-    inputs:
-      provider: 'azurerm'
-      command: 'plan'
-      environmentServiceNameAzureRM: 'shailesh'
+    - task: AzureCLI@3
+      displayName: 'Azure CLI Login'
+      inputs:
+        connectionType: 'azureRM'
+        azureSubscription: 'shailesh'
+        scriptType: 'ps'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          az account show
+          az group list --output table
 
-- job: cd
+    # --------------------------------------------------------
+    # Terraform Install
+    # --------------------------------------------------------
+
+    - task: TerraformInstaller@1
+      displayName: 'Terraform Install'
+      inputs:
+        terraformVersion: 'latest'
+
+    # --------------------------------------------------------
+    # Terraform Init
+    # --------------------------------------------------------
+
+    - task: TerraformTask@5
+      displayName: 'Terraform Init'
+      inputs:
+        provider: 'azurerm'
+        command: 'init'
+        backendServiceArm: 'shailesh'
+        backendAzureRmResourceGroupName: 'sit'
+        backendAzureRmStorageAccountName: 'sitterraformstate2026'
+        backendAzureRmContainerName: 'tfstate'
+        backendAzureRmKey: 'sit.terraform.tfstate'
+
+    # --------------------------------------------------------
+    # Terraform Validate
+    # --------------------------------------------------------
+
+    - task: TerraformTask@5
+      displayName: 'Terraform Validate'
+      inputs:
+        provider: 'azurerm'
+        command: 'validate'
+
+    # --------------------------------------------------------
+    # Terraform Plan
+    # --------------------------------------------------------
+
+    - task: TerraformTask@5
+      displayName: 'Terraform Plan'
+      inputs:
+        provider: 'azurerm'
+        command: 'plan'
+        environmentServiceNameAzureRM: 'shailesh'
+        commandOptions: '-out=$(Build.ArtifactStagingDirectory)/tfplan'
+
+    # --------------------------------------------------------
+    # Publish Terraform Plan
+    # --------------------------------------------------------
+
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Terraform Plan'
+      inputs:
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)/tfplan'
+        ArtifactName: 'terraform-plan'
+        publishLocation: 'Container'
+
+
+# ============================================================
+# CD STAGE
+# ============================================================
+
+- stage: CD
   displayName: 'Terraform CD'
-  dependsOn: ci
+
+  dependsOn: CI
+
   condition: succeeded()
 
-  pool:
-    name: Azurecicd
+  jobs:
 
-  steps:
-  - checkout: self
+  - job: CDWork
+    displayName: 'Terraform CD Work'
 
-  - task: AzureCLI@3
-    displayName: 'Azure CLI Login - CD'
-    inputs:
-      connectionType: 'azureRM'
-      azureSubscription: 'shailesh'
-      scriptType: 'ps'
-      scriptLocation: 'inlineScript'
-      inlineScript: |
-        az account show
+    steps:
 
-  - task: TerraformInstaller@1
-    displayName: 'Terraform Install'
-    inputs:
-      terraformVersion: 'latest'
+    # --------------------------------------------------------
+    # Checkout Repository
+    # --------------------------------------------------------
 
-  - task: TerraformTask@5
-    displayName: 'Terraform Init - CD'
-    inputs:
-      provider: 'azurerm'
-      command: 'init'
-      backendServiceArm: 'shailesh'
-      backendAzureRmResourceGroupName: 'sit'
-      backendAzureRmStorageAccountName: 'sitterraformstate2026'
-      backendAzureRmContainerName: 'tfstate'
-      backendAzureRmKey: 'sit.terraform.tfstate'
+    - checkout: self
 
-  - task: TerraformTask@5
-    displayName: 'Terraform Apply'
-    inputs:
-      provider: 'azurerm'
-      command: 'apply'
-      environmentServiceNameAzureRM: 'shailesh'
+    # --------------------------------------------------------
+    # Download Terraform Plan Artifact
+    # --------------------------------------------------------
+
+    - task: DownloadBuildArtifacts@1
+      displayName: 'Download Terraform Plan'
+      inputs:
+        buildType: 'current'
+        downloadType: 'single'
+        artifactName: 'terraform-plan'
+        downloadPath: '$(Pipeline.Workspace)'
+
+    # --------------------------------------------------------
+    # Azure Login - Workload Identity Federation
+    # --------------------------------------------------------
+
+    - task: AzureCLI@3
+      displayName: 'Azure CLI Login CD'
+      inputs:
+        connectionType: 'azureRM'
+        azureSubscription: 'shailesh'
+        scriptType: 'ps'
+        scriptLocation: 'inlineScript'
+        inlineScript: |
+          az account show
+          az group list --output table
+
+    # --------------------------------------------------------
+    # Terraform Install
+    # --------------------------------------------------------
+
+    - task: TerraformInstaller@1
+      displayName: 'Terraform Install'
+      inputs:
+        terraformVersion: 'latest'
+
+    # --------------------------------------------------------
+    # Terraform Init CD
+    # --------------------------------------------------------
+
+    - task: TerraformTask@5
+      displayName: 'Terraform Init CD'
+      inputs:
+        provider: 'azurerm'
+        command: 'init'
+        backendServiceArm: 'shailesh'
+        backendAzureRmResourceGroupName: 'sit'
+        backendAzureRmStorageAccountName: 'sitterraformstate2026'
+        backendAzureRmContainerName: 'tfstate'
+        backendAzureRmKey: 'sit.terraform.tfstate'
+
+    # --------------------------------------------------------
+    # Terraform Apply - Same Plan Generated in CI
+    # --------------------------------------------------------
+
+    - task: TerraformTask@5
+      displayName: 'Terraform Apply'
+      inputs:
+        provider: 'azurerm'
+        command: 'apply'
+        environmentServiceNameAzureRM: 'shailesh'
+        commandOptions: '$(Pipeline.Workspace)/terraform-plan/tfplan'
