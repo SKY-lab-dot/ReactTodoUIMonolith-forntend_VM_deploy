@@ -8,10 +8,6 @@ pool:
 
 stages:
 
-# ============================================================
-# CI STAGE
-# ============================================================
-
 - stage: CI
   displayName: 'Terraform CI'
 
@@ -39,33 +35,60 @@ stages:
       inputs:
         terraformVersion: 'latest'
 
-    - task: TerraformTask@5
+    - task: PowerShell@2
       displayName: 'Terraform Init'
       inputs:
-        provider: 'azurerm'
-        command: 'init'
-        workingDirectory: '$(System.DefaultWorkingDirectory)/Azure-Landing-Zone-Terraform_VM/Parent_Module/dev'
-        backendServiceArm: 'shailesh'
-        backendAzureRmResourceGroupName: 'sit'
-        backendAzureRmStorageAccountName: 'sitterraformstate2026'
-        backendAzureRmContainerName: 'tfstate'
-        backendAzureRmKey: 'sit.terraform.tfstate'
+        targetType: 'inline'
+        script: |
+          Set-Location "$(System.DefaultWorkingDirectory)\Azure-Landing-Zone-Terraform_VM\Parent_Module\dev"
 
-    - task: TerraformTask@5
+          Write-Host "Working Directory:"
+          Get-Location
+
+          Write-Host "Terraform Version:"
+          terraform version
+
+          Write-Host "Terraform Init:"
+
+          terraform init `
+            -backend-config="storage_account_name=sitterraformstate2026" `
+            -backend-config="container_name=tfstate" `
+            -backend-config="key=sit.terraform.tfstate" `
+            -backend-config="resource_group_name=sit" `
+            -backend-config="subscription_id=5ef4ee5d-6bd4-4c27-acc2-af8816fed413" `
+            -backend-config="use_azuread_auth=true"
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+    - task: PowerShell@2
       displayName: 'Terraform Validate'
       inputs:
-        provider: 'azurerm'
-        command: 'validate'
-        workingDirectory: '$(System.DefaultWorkingDirectory)/Azure-Landing-Zone-Terraform_VM/Parent_Module/dev'
+        targetType: 'inline'
+        script: |
+          Set-Location "$(System.DefaultWorkingDirectory)\Azure-Landing-Zone-Terraform_VM\Parent_Module\dev"
 
-    - task: TerraformTask@5
+          terraform validate
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+    - task: PowerShell@2
       displayName: 'Terraform Plan'
       inputs:
-        provider: 'azurerm'
-        command: 'plan'
-        environmentServiceNameAzureRM: 'shailesh'
-        workingDirectory: '$(System.DefaultWorkingDirectory)/Azure-Landing-Zone-Terraform_VM/Parent_Module/dev'
-        commandOptions: '-input=false -out="$(Build.ArtifactStagingDirectory)/tfplan'
+        targetType: 'inline'
+        script: |
+          Set-Location "$(System.DefaultWorkingDirectory)\Azure-Landing-Zone-Terraform_VM\Parent_Module\dev"
+
+          terraform plan `
+            -input=false `
+            -out="$(Build.ArtifactStagingDirectory)\tfplan"
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
 
     - task: PowerShell@2
       displayName: 'Check Terraform Plan File'
@@ -78,18 +101,13 @@ stages:
     - task: PublishBuildArtifacts@1
       displayName: 'Publish Terraform Plan'
       inputs:
-        PathtoPublish: '$(Build.ArtifactStagingDirectory)/tfplan'
+        PathtoPublish: '$(Build.ArtifactStagingDirectory)\tfplan'
         ArtifactName: 'terraform-plan'
         publishLocation: 'Container'
 
 
-# ============================================================
-# CD STAGE
-# ============================================================
-
 - stage: CD
   displayName: 'Terraform CD'
-
   dependsOn: CI
   condition: succeeded()
 
@@ -133,23 +151,41 @@ stages:
       inputs:
         terraformVersion: 'latest'
 
-    - task: TerraformTask@5
+    - task: PowerShell@2
       displayName: 'Terraform Init CD'
       inputs:
-        provider: 'azurerm'
-        command: 'init'
-        workingDirectory: '$(System.DefaultWorkingDirectory)/Azure-Landing-Zone-Terraform_VM/Parent_Module/dev'
-        backendServiceArm: 'shailesh'
-        backendAzureRmResourceGroupName: 'sit'
-        backendAzureRmStorageAccountName: 'sitterraformstate2026'
-        backendAzureRmContainerName: 'tfstate'
-        backendAzureRmKey: 'sit.terraform.tfstate'
+        targetType: 'inline'
+        script: |
+          Set-Location "$(System.DefaultWorkingDirectory)\Azure-Landing-Zone-Terraform_VM\Parent_Module\dev"
 
-    - task: TerraformTask@5
+          Write-Host "Terraform Version:"
+          terraform version
+
+          Write-Host "Terraform Init CD:"
+
+          terraform init `
+            -backend-config="storage_account_name=sitterraformstate2026" `
+            -backend-config="container_name=tfstate" `
+            -backend-config="key=sit.terraform.tfstate" `
+            -backend-config="resource_group_name=sit" `
+            -backend-config="subscription_id=5ef4ee5d-6bd4-4c27-acc2-af8816fed413" `
+            -backend-config="use_azuread_auth=true"
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+    - task: PowerShell@2
       displayName: 'Terraform Apply'
       inputs:
-        provider: 'azurerm'
-        command: 'apply'
-        environmentServiceNameAzureRM: 'shailesh'
-        workingDirectory: '$(System.DefaultWorkingDirectory)/Azure-Landing-Zone-Terraform_VM/Parent_Module/dev'
-        commandOptions: '"$(Pipeline.Workspace)/terraform-plan/tfplan"'
+        targetType: 'inline'
+        script: |
+          Set-Location "$(System.DefaultWorkingDirectory)\Azure-Landing-Zone-Terraform_VM\Parent_Module\dev"
+
+          terraform apply `
+            -input=false `
+            "$(Pipeline.Workspace)\terraform-plan\tfplan"
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
