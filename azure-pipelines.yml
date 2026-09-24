@@ -87,6 +87,7 @@ stages:
         provider: 'azurerm'
         command: 'plan'
         environmentServiceNameAzureRM: 'shailesh'
+        workingDirectory: '$(System.DefaultWorkingDirectory)'
         commandOptions: '-out=$(Build.ArtifactStagingDirectory)/tfplan'
 
     # --------------------------------------------------------
