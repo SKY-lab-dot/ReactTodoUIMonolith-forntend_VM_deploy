@@ -29,7 +29,7 @@ stages:
     - checkout: self
 
     # --------------------------------------------------------
-    # Azure Login - Workload Identity Federation
+    # Azure CLI Login - Workload Identity Federation
     # --------------------------------------------------------
 
     - task: AzureCLI@3
@@ -88,10 +88,22 @@ stages:
         command: 'plan'
         environmentServiceNameAzureRM: 'shailesh'
         workingDirectory: '$(System.DefaultWorkingDirectory)'
-        commandOptions: '-out=$(Build.ArtifactStagingDirectory)/tfplan'
+        commandOptions: '-input=false -out="$(Build.ArtifactStagingDirectory)/tfplan"'
 
     # --------------------------------------------------------
-    # Publish Terraform Plan
+    # Check Plan File
+    # --------------------------------------------------------
+
+    - task: PowerShell@2
+      displayName: 'Check Terraform Plan File'
+      inputs:
+        targetType: 'inline'
+        script: |
+          Write-Host "Checking Terraform plan file..."
+          Get-ChildItem "$(Build.ArtifactStagingDirectory)" -Recurse
+
+    # --------------------------------------------------------
+    # Publish Terraform Plan Artifact
     # --------------------------------------------------------
 
     - task: PublishBuildArtifacts@1
@@ -139,7 +151,19 @@ stages:
         downloadPath: '$(Pipeline.Workspace)'
 
     # --------------------------------------------------------
-    # Azure Login - Workload Identity Federation
+    # Check Downloaded Plan
+    # --------------------------------------------------------
+
+    - task: PowerShell@2
+      displayName: 'Check Downloaded Terraform Plan'
+      inputs:
+        targetType: 'inline'
+        script: |
+          Write-Host "Downloaded Terraform plan:"
+          Get-ChildItem "$(Pipeline.Workspace)" -Recurse
+
+    # --------------------------------------------------------
+    # Azure CLI Login - Workload Identity Federation
     # --------------------------------------------------------
 
     - task: AzureCLI@3
@@ -178,7 +202,7 @@ stages:
         backendAzureRmKey: 'sit.terraform.tfstate'
 
     # --------------------------------------------------------
-    # Terraform Apply - Same Plan Generated in CI
+    # Terraform Apply - Same Plan From CI
     # --------------------------------------------------------
 
     - task: TerraformTask@5
@@ -187,4 +211,5 @@ stages:
         provider: 'azurerm'
         command: 'apply'
         environmentServiceNameAzureRM: 'shailesh'
-        commandOptions: '$(Pipeline.Workspace)/terraform-plan/tfplan'
+        workingDirectory: '$(System.DefaultWorkingDirectory)'
+        commandOptions: '"$(Pipeline.Workspace)/terraform-plan/tfplan"'
