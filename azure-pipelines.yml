@@ -6,186 +6,386 @@ trigger:
 pool:
   name: Azurecicd
 
+# ============================================================
+# VARIABLES
+# ============================================================
+
+variables:
+  terraformWorkingDirectory: '$(Build.SourcesDirectory)\Parent_Module\dev'
+
+# ============================================================
+# STAGES
+# ============================================================
+
 stages:
+
+# ============================================================
+# CI STAGE
+# ============================================================
 
 - stage: CI
   displayName: 'Terraform CI'
 
   jobs:
-  - job: CIWork
-    displayName: 'Terraform CI Work'
+
+  - job: TerraformCI
+    displayName: 'Terraform Init and Validate'
 
     steps:
 
+    # --------------------------------------------------------
+    # CHECKOUT MAIN REPOSITORY
+    # --------------------------------------------------------
+
     - checkout: self
+      displayName: 'Checkout Repository'
 
-    - task: AzureCLI@3
-      displayName: 'Azure CLI Login'
-      inputs:
-        connectionType: 'azureRM'
-        azureSubscription: 'shailesh'
-        scriptType: 'ps'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          az account show
-          az group list --output table
+    # --------------------------------------------------------
+    # SHOW REPOSITORY STRUCTURE
+    # --------------------------------------------------------
 
-    - task: TerraformInstaller@1
-      displayName: 'Terraform Install'
+    - task: PowerShell@2
+      displayName: 'Check Repository Structure'
       inputs:
-        terraformVersion: 'latest'
+        targetType: 'inline'
+        script: |
+          Write-Host "=========================================="
+          Write-Host "Repository Information"
+          Write-Host "=========================================="
+
+          Write-Host "Build.SourcesDirectory:"
+          Write-Host "$(Build.SourcesDirectory)"
+
+          Write-Host ""
+          Write-Host "Repository files/folders:"
+          Write-Host "=========================================="
+
+          Get-ChildItem "$(Build.SourcesDirectory)" -Recurse |
+            Select-Object FullName |
+            Format-Table -AutoSize
+
+    # --------------------------------------------------------
+    # CHECK TERRAFORM DIRECTORY
+    # --------------------------------------------------------
+
+    - task: PowerShell@2
+      displayName: 'Check Terraform Directory'
+      inputs:
+        targetType: 'inline'
+        script: |
+          $terraformPath = "$(terraformWorkingDirectory)"
+
+          Write-Host "=========================================="
+          Write-Host "Terraform Working Directory"
+          Write-Host "=========================================="
+
+          Write-Host $terraformPath
+
+          if (-not (Test-Path $terraformPath)) {
+
+              Write-Host ""
+              Write-Host "##[error]Terraform directory does NOT exist!"
+              Write-Host ""
+              Write-Host "Expected directory:"
+              Write-Host $terraformPath
+              Write-Host ""
+
+              Write-Host "Available directories:"
+              Get-ChildItem "$(Build.SourcesDirectory)" -Directory -Recurse |
+                Select-Object FullName |
+                Format-Table -AutoSize
+
+              exit 1
+          }
+
+          Write-Host ""
+          Write-Host "Terraform directory found successfully."
+
+          Write-Host ""
+          Write-Host "Terraform files:"
+          Get-ChildItem $terraformPath |
+            Select-Object Name, FullName |
+            Format-Table -AutoSize
+
+    # --------------------------------------------------------
+    # TERRAFORM VERSION
+    # --------------------------------------------------------
+
+    - task: PowerShell@2
+      displayName: 'Terraform Version'
+      inputs:
+        targetType: 'inline'
+        script: |
+          terraform version
+
+    # --------------------------------------------------------
+    # TERRAFORM INIT
+    # --------------------------------------------------------
 
     - task: PowerShell@2
       displayName: 'Terraform Init'
       inputs:
         targetType: 'inline'
         script: |
-          Set-Location "$(System.DefaultWorkingDirectory)\Parent_Module\dev"
+          Set-Location "$(terraformWorkingDirectory)"
 
-          Write-Host "Working Directory:"
+          Write-Host "Current directory:"
           Get-Location
 
-          Write-Host "Terraform Version:"
-          terraform version
+          Write-Host ""
+          Write-Host "Running Terraform Init..."
 
-          Write-Host "Terraform Init:"
-
-          terraform init `
-            -backend-config="storage_account_name=sitterraformstate2026" `
-            -backend-config="container_name=tfstate" `
-            -backend-config="key=sit.terraform.tfstate" `
-            -backend-config="resource_group_name=sit" `
-            -backend-config="subscription_id=5ef4ee5d-6bd4-4c27-acc2-af8816fed413" `
-            -backend-config="use_azuread_auth=true"
+          terraform init
 
           if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
+              Write-Host "##[error]Terraform init failed."
+              exit $LASTEXITCODE
           }
+
+    # --------------------------------------------------------
+    # TERRAFORM VALIDATE
+    # --------------------------------------------------------
 
     - task: PowerShell@2
       displayName: 'Terraform Validate'
       inputs:
         targetType: 'inline'
         script: |
-          Set-Location "$(System.DefaultWorkingDirectory)\Parent_Module\dev"
+          Set-Location "$(terraformWorkingDirectory)"
+
+          Write-Host "Running Terraform Validate..."
 
           terraform validate
 
           if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
+              Write-Host "##[error]Terraform validate failed."
+              exit $LASTEXITCODE
           }
+
+    # --------------------------------------------------------
+    # TERRAFORM FORMAT
+    # --------------------------------------------------------
+
+    - task: PowerShell@2
+      displayName: 'Terraform Format Check'
+      inputs:
+        targetType: 'inline'
+        script: |
+          Set-Location "$(terraformWorkingDirectory)"
+
+          Write-Host "Running Terraform Format Check..."
+
+          terraform fmt -check -recursive
+
+          if ($LASTEXITCODE -ne 0) {
+              Write-Host "##[error]Terraform formatting check failed."
+              exit $LASTEXITCODE
+          }
+
+
+# ============================================================
+# PLAN STAGE
+# ============================================================
+
+- stage: PLAN
+  displayName: 'Terraform Plan'
+
+  dependsOn: CI
+
+  condition: succeeded()
+
+  jobs:
+
+  - job: TerraformPlan
+    displayName: 'Terraform Plan'
+
+    steps:
+
+    # --------------------------------------------------------
+    # CHECKOUT
+    # --------------------------------------------------------
+
+    - checkout: self
+      displayName: 'Checkout Repository'
+
+    # --------------------------------------------------------
+    # CHECK TERRAFORM DIRECTORY
+    # --------------------------------------------------------
+
+    - task: PowerShell@2
+      displayName: 'Verify Terraform Directory'
+      inputs:
+        targetType: 'inline'
+        script: |
+          $terraformPath = "$(terraformWorkingDirectory)"
+
+          if (-not (Test-Path $terraformPath)) {
+              Write-Host "##[error]Terraform directory not found:"
+              Write-Host $terraformPath
+              exit 1
+          }
+
+          Write-Host "Terraform directory found:"
+          Write-Host $terraformPath
+
+    # --------------------------------------------------------
+    # TERRAFORM INIT
+    # --------------------------------------------------------
+
+    - task: PowerShell@2
+      displayName: 'Terraform Init'
+      inputs:
+        targetType: 'inline'
+        script: |
+          Set-Location "$(terraformWorkingDirectory)"
+
+          terraform init
+
+          if ($LASTEXITCODE -ne 0) {
+              Write-Host "##[error]Terraform init failed."
+              exit $LASTEXITCODE
+          }
+
+    # --------------------------------------------------------
+    # TERRAFORM PLAN
+    # --------------------------------------------------------
 
     - task: PowerShell@2
       displayName: 'Terraform Plan'
       inputs:
         targetType: 'inline'
         script: |
-          Set-Location "$(System.DefaultWorkingDirectory)\Parent_Module\dev"
+          Set-Location "$(terraformWorkingDirectory)"
 
-          terraform plan `
-            -input=false `
-            -out="$(Build.ArtifactStagingDirectory)\tfplan"
+          Write-Host "Running Terraform Plan..."
+
+          terraform plan -out=tfplan
 
           if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
+              Write-Host "##[error]Terraform plan failed."
+              exit $LASTEXITCODE
           }
 
-    - task: PowerShell@2
-      displayName: 'Check Terraform Plan File'
-      inputs:
-        targetType: 'inline'
-        script: |
-          Write-Host "Checking Terraform plan file..."
-          Get-ChildItem "$(Build.ArtifactStagingDirectory)" -Recurse
+    # --------------------------------------------------------
+    # PUBLISH PLAN
+    # --------------------------------------------------------
 
-    - task: PublishBuildArtifacts@1
+    - task: PublishPipelineArtifact@1
       displayName: 'Publish Terraform Plan'
       inputs:
-        PathtoPublish: '$(Build.ArtifactStagingDirectory)\tfplan'
-        ArtifactName: 'terraform-plan'
-        publishLocation: 'Container'
+        targetPath: '$(terraformWorkingDirectory)\tfplan'
+        artifact: 'terraform-plan'
 
 
-- stage: CD
-  displayName: 'Terraform CD'
-  dependsOn: CI
+# ============================================================
+# APPLY STAGE
+# ============================================================
+
+- stage: APPLY
+  displayName: 'Terraform Apply'
+
+  dependsOn: PLAN
+
   condition: succeeded()
 
   jobs:
-  - job: CDWork
-    displayName: 'Terraform CD Work'
 
-    steps:
+  - deployment: TerraformApply
+    displayName: 'Terraform Apply'
 
-    - checkout: self
+    environment: 'terraform-production'
 
-    - task: DownloadBuildArtifacts@1
-      displayName: 'Download Terraform Plan'
-      inputs:
-        buildType: 'current'
-        downloadType: 'single'
-        artifactName: 'terraform-plan'
-        downloadPath: '$(Pipeline.Workspace)'
+    strategy:
 
-    - task: PowerShell@2
-      displayName: 'Check Downloaded Terraform Plan'
-      inputs:
-        targetType: 'inline'
-        script: |
-          Write-Host "Downloaded Terraform plan:"
-          Get-ChildItem "$(Pipeline.Workspace)" -Recurse
+      runOnce:
 
-    - task: AzureCLI@3
-      displayName: 'Azure CLI Login CD'
-      inputs:
-        connectionType: 'azureRM'
-        azureSubscription: 'shailesh'
-        scriptType: 'ps'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-          az account show
-          az group list --output table
+        deploy:
 
-    - task: TerraformInstaller@1
-      displayName: 'Terraform Install'
-      inputs:
-        terraformVersion: 'latest'
+          steps:
 
-    - task: PowerShell@2
-      displayName: 'Terraform Init CD'
-      inputs:
-        targetType: 'inline'
-        script: |
-          Set-Location "$(System.DefaultWorkingDirectory)\Parent_Module\dev"
+          # --------------------------------------------------
+          # CHECKOUT
+          # --------------------------------------------------
 
-          Write-Host "Terraform Version:"
-          terraform version
+          - checkout: self
+            displayName: 'Checkout Repository'
 
-          Write-Host "Terraform Init CD:"
+          # --------------------------------------------------
+          # DOWNLOAD PLAN
+          # --------------------------------------------------
 
-          terraform init `
-            -backend-config="storage_account_name=sitterraformstate2026" `
-            -backend-config="container_name=tfstate" `
-            -backend-config="key=sit.terraform.tfstate" `
-            -backend-config="resource_group_name=sit" `
-            -backend-config="subscription_id=5ef4ee5d-6bd4-4c27-acc2-af8816fed413" `
-            -backend-config="use_azuread_auth=true"
+          - task: DownloadPipelineArtifact@2
+            displayName: 'Download Terraform Plan'
+            inputs:
+              artifact: 'terraform-plan'
+              path: '$(Pipeline.Workspace)\terraform-plan'
 
-          if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
-          }
+          # --------------------------------------------------
+          # CHECK TERRAFORM DIRECTORY
+          # --------------------------------------------------
 
-    - task: PowerShell@2
-      displayName: 'Terraform Apply'
-      inputs:
-        targetType: 'inline'
-        script: |
-          Set-Location "$(System.DefaultWorkingDirectory)\Parent_Module\dev"
+          - task: PowerShell@2
+            displayName: 'Verify Terraform Directory'
+            inputs:
+              targetType: 'inline'
+              script: |
+                $terraformPath = "$(terraformWorkingDirectory)"
 
-          terraform apply `
-            -input=false `
-            "$(Pipeline.Workspace)\terraform-plan\tfplan"
+                if (-not (Test-Path $terraformPath)) {
+                    Write-Host "##[error]Terraform directory not found:"
+                    Write-Host $terraformPath
+                    exit 1
+                }
 
-          if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
-          }
+                Write-Host "Terraform directory found:"
+                Write-Host $terraformPath
+
+          # --------------------------------------------------
+          # TERRAFORM INIT
+          # --------------------------------------------------
+
+          - task: PowerShell@2
+            displayName: 'Terraform Init'
+            inputs:
+              targetType: 'inline'
+              script: |
+                Set-Location "$(terraformWorkingDirectory)"
+
+                terraform init
+
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "##[error]Terraform init failed."
+                    exit $LASTEXITCODE
+                }
+
+          # --------------------------------------------------
+          # TERRAFORM APPLY
+          # --------------------------------------------------
+
+          - task: PowerShell@2
+            displayName: 'Terraform Apply'
+            inputs:
+              targetType: 'inline'
+              script: |
+                Set-Location "$(terraformWorkingDirectory)"
+
+                $planFile = "$(Pipeline.Workspace)\terraform-plan\tfplan"
+
+                if (-not (Test-Path $planFile)) {
+                    Write-Host "##[error]Terraform plan file not found:"
+                    Write-Host $planFile
+                    exit 1
+                }
+
+                Write-Host "Applying Terraform plan..."
+
+                terraform apply -auto-approve $planFile
+
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host "##[error]Terraform apply failed."
+                    exit $LASTEXITCODE
+                }
+
+                Write-Host "=========================================="
+                Write-Host "Terraform Apply Completed Successfully"
+                Write-Host "=========================================="
