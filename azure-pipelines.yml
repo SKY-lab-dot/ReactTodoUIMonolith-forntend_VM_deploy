@@ -1,4 +1,3 @@
-
 name: azurelandingzoneYMALpipeline
 
 trigger:
@@ -31,30 +30,63 @@ stages:
       displayName: 'Checkout Repository'
 
     # --------------------------------------------------------
-    # SHOW REPOSITORY STRUCTURE
+    # SHOW REPOSITORY CONTENT
     # --------------------------------------------------------
 
     - task: PowerShell@2
-      displayName: 'Check Repository Structure'
+      displayName: 'Find Terraform Files'
       inputs:
         targetType: 'inline'
         script: |
+
           Write-Host "=========================================="
-          Write-Host "Repository"
+          Write-Host "Repository Root"
           Write-Host "=========================================="
 
-          Write-Host "Source Directory:"
           Write-Host "$(System.DefaultWorkingDirectory)"
 
           Write-Host ""
-          Write-Host "Terraform files:"
+          Write-Host "=========================================="
+          Write-Host "All Terraform Files"
+          Write-Host "=========================================="
 
-          Get-ChildItem `
+          $tfFiles = Get-ChildItem `
             -Path "$(System.DefaultWorkingDirectory)" `
             -Recurse `
             -Filter "*.tf" `
-            -File |
-            Select-Object FullName
+            -File
+
+          if ($tfFiles.Count -eq 0) {
+
+              Write-Host "##[error]No Terraform (.tf) files found in repository!"
+
+              Write-Host ""
+              Write-Host "Repository content:"
+
+              Get-ChildItem `
+                -Path "$(System.DefaultWorkingDirectory)" `
+                -Recurse |
+                Select-Object FullName
+
+              exit 1
+          }
+
+          foreach ($file in $tfFiles) {
+              Write-Host $file.FullName
+          }
+
+          # Take directory of first Terraform file
+          $terraformDir = $tfFiles[0].DirectoryName
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "Terraform Working Directory"
+          Write-Host "=========================================="
+
+          Write-Host $terraformDir
+
+          # Save Terraform directory for next tasks
+          Write-Host "##vso[task.setvariable variable=TerraformDirectory]$terraformDir"
 
     # --------------------------------------------------------
     # AZURE LOGIN
@@ -68,11 +100,18 @@ stages:
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
         inlineScript: |
-          Write-Host "Azure Account:"
+
+          Write-Host "=========================================="
+          Write-Host "Azure Account"
+          Write-Host "=========================================="
+
           az account show
 
           Write-Host ""
-          Write-Host "Resource Groups:"
+          Write-Host "=========================================="
+          Write-Host "Resource Groups"
+          Write-Host "=========================================="
+
           az group list --output table
 
     # --------------------------------------------------------
@@ -93,45 +132,60 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
-          $terraformDir = "$(System.DefaultWorkingDirectory)\Azure-Landing-Zone-Terraform_VM\Parent_Module\dev"
 
-          Write-Host "Terraform Directory:"
-          Write-Host $terraformDir
+          Write-Host "=========================================="
+          Write-Host "Terraform Directory"
+          Write-Host "=========================================="
 
-          if (-not (Test-Path $terraformDir)) {
+          Write-Host "$(TerraformDirectory)"
+
+          if (-not (Test-Path "$(TerraformDirectory)")) {
+
               Write-Host "##[error]Terraform directory not found!"
-              Write-Host ""
-              Write-Host "Available directories:"
-              Get-ChildItem `
-                -Path "$(System.DefaultWorkingDirectory)" `
-                -Directory `
-                -Recurse |
-                Select-Object FullName
-
               exit 1
           }
 
-          Write-Host "Terraform directory found."
-
           Write-Host ""
           Write-Host "Terraform files:"
-          Get-ChildItem $terraformDir
+
+          Get-ChildItem "$(TerraformDirectory)" -Filter "*.tf"
 
     # --------------------------------------------------------
     # TERRAFORM INIT
     # --------------------------------------------------------
 
-    - task: TerraformTask@5
+    - task: PowerShell@2
       displayName: 'Terraform Init'
       inputs:
-        provider: 'azurerm'
-        command: 'init'
-        workingDirectory: '$(System.DefaultWorkingDirectory)\Azure-Landing-Zone-Terraform_VM\Parent_Module\dev'
-        backendServiceArm: 'shailesh'
-        backendAzureRmResourceGroupName: 'sit'
-        backendAzureRmStorageAccountName: 'sitterraformstate2026'
-        backendAzureRmContainerName: 'tfstate'
-        backendAzureRmKey: 'sit.terraform.tfstate'
+        targetType: 'inline'
+        script: |
+
+          Set-Location "$(TerraformDirectory)"
+
+          Write-Host "=========================================="
+          Write-Host "Terraform Version"
+          Write-Host "=========================================="
+
+          terraform version
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "Terraform Init"
+          Write-Host "=========================================="
+
+          terraform init `
+            -backend-config="storage_account_name=sitterraformstate2026" `
+            -backend-config="container_name=tfstate" `
+            -backend-config="key=sit.terraform.tfstate" `
+            -backend-config="resource_group_name=sit" `
+            -backend-config="subscription_id=5ef4ee5d-6bd4-4c27-acc2-af8816fed413" `
+            -backend-config="use_azuread_auth=true"
+
+          if ($LASTEXITCODE -ne 0) {
+
+              Write-Host "##[error]Terraform init failed."
+              exit $LASTEXITCODE
+          }
 
     # --------------------------------------------------------
     # TERRAFORM VALIDATE
@@ -142,21 +196,19 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
-          $terraformDir = "$(System.DefaultWorkingDirectory)\Azure-Landing-Zone-Terraform_VM\Parent_Module\dev"
 
-          Set-Location $terraformDir
+          Set-Location "$(TerraformDirectory)"
 
-          Write-Host "Current directory:"
-          Get-Location
-
-          Write-Host ""
-          Write-Host "Running Terraform Validate..."
+          Write-Host "=========================================="
+          Write-Host "Terraform Validate"
+          Write-Host "=========================================="
 
           terraform validate
 
           if ($LASTEXITCODE -ne 0) {
-            Write-Host "##[error]Terraform validate failed."
-            exit $LASTEXITCODE
+
+              Write-Host "##[error]Terraform validate failed."
+              exit $LASTEXITCODE
           }
 
     # --------------------------------------------------------
@@ -168,23 +220,21 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
-          $terraformDir = "$(System.DefaultWorkingDirectory)\Azure-Landing-Zone-Terraform_VM\Parent_Module\dev"
 
-          Set-Location $terraformDir
+          Set-Location "$(TerraformDirectory)"
 
-          Write-Host "Current directory:"
-          Get-Location
-
-          Write-Host ""
-          Write-Host "Running Terraform Plan..."
+          Write-Host "=========================================="
+          Write-Host "Terraform Plan"
+          Write-Host "=========================================="
 
           terraform plan `
             -input=false `
             -out="$(Build.ArtifactStagingDirectory)\tfplan"
 
           if ($LASTEXITCODE -ne 0) {
-            Write-Host "##[error]Terraform plan failed."
-            exit $LASTEXITCODE
+
+              Write-Host "##[error]Terraform plan failed."
+              exit $LASTEXITCODE
           }
 
     # --------------------------------------------------------
@@ -196,21 +246,26 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
+
+          $planFile = "$(Build.ArtifactStagingDirectory)\tfplan"
+
           Write-Host "=========================================="
           Write-Host "Terraform Plan File"
           Write-Host "=========================================="
 
-          $planFile = "$(Build.ArtifactStagingDirectory)\tfplan"
-
-          if (-not (Test-Path $planFile)) {
-            Write-Host "##[error]Terraform plan file not found!"
-            exit 1
-          }
-
-          Write-Host "Plan file found:"
           Write-Host $planFile
 
-          Get-ChildItem "$(Build.ArtifactStagingDirectory)" -Recurse
+          if (-not (Test-Path $planFile)) {
+
+              Write-Host "##[error]Terraform plan file not found!"
+              exit 1
+          }
+
+          Write-Host "Terraform plan file exists."
+
+          Get-ChildItem `
+            "$(Build.ArtifactStagingDirectory)" `
+            -Recurse
 
     # --------------------------------------------------------
     # PUBLISH PLAN
@@ -250,6 +305,44 @@ stages:
       displayName: 'Checkout Repository'
 
     # --------------------------------------------------------
+    # FIND TERRAFORM FILES AGAIN
+    # --------------------------------------------------------
+
+    - task: PowerShell@2
+      displayName: 'Find Terraform Directory CD'
+      inputs:
+        targetType: 'inline'
+        script: |
+
+          Write-Host "=========================================="
+          Write-Host "Searching Terraform Files"
+          Write-Host "=========================================="
+
+          $tfFiles = Get-ChildItem `
+            -Path "$(System.DefaultWorkingDirectory)" `
+            -Recurse `
+            -Filter "*.tf" `
+            -File
+
+          if ($tfFiles.Count -eq 0) {
+
+              Write-Host "##[error]No Terraform files found!"
+              exit 1
+          }
+
+          foreach ($file in $tfFiles) {
+              Write-Host $file.FullName
+          }
+
+          $terraformDir = $tfFiles[0].DirectoryName
+
+          Write-Host ""
+          Write-Host "Terraform Directory:"
+          Write-Host $terraformDir
+
+          Write-Host "##vso[task.setvariable variable=TerraformDirectory]$terraformDir"
+
+    # --------------------------------------------------------
     # DOWNLOAD PLAN
     # --------------------------------------------------------
 
@@ -270,22 +363,26 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
+
           Write-Host "=========================================="
           Write-Host "Downloaded Terraform Plan"
           Write-Host "=========================================="
 
-          Get-ChildItem "$(Pipeline.Workspace)" -Recurse
+          Get-ChildItem `
+            "$(Pipeline.Workspace)" `
+            -Recurse
 
           $planFile = "$(Pipeline.Workspace)\terraform-plan\tfplan"
 
           if (-not (Test-Path $planFile)) {
-            Write-Host "##[error]Downloaded Terraform plan not found!"
-            Write-Host "Expected:"
-            Write-Host $planFile
-            exit 1
+
+              Write-Host "##[error]Terraform plan file not found!"
+              Write-Host "Expected:"
+              Write-Host $planFile
+
+              exit 1
           }
 
-          Write-Host ""
           Write-Host "Terraform plan found:"
           Write-Host $planFile
 
@@ -301,12 +398,12 @@ stages:
         scriptType: 'ps'
         scriptLocation: 'inlineScript'
         inlineScript: |
-          Write-Host "Azure Account:"
-          az account show
 
-          Write-Host ""
-          Write-Host "Resource Groups:"
-          az group list --output table
+          Write-Host "=========================================="
+          Write-Host "Azure Account"
+          Write-Host "=========================================="
+
+          az account show
 
     # --------------------------------------------------------
     # TERRAFORM INSTALL
@@ -318,41 +415,34 @@ stages:
         terraformVersion: 'latest'
 
     # --------------------------------------------------------
-    # CHECK TERRAFORM DIRECTORY
-    # --------------------------------------------------------
-
-    - task: PowerShell@2
-      displayName: 'Check Terraform Directory CD'
-      inputs:
-        targetType: 'inline'
-        script: |
-          $terraformDir = "$(System.DefaultWorkingDirectory)\Azure-Landing-Zone-Terraform_VM\Parent_Module\dev"
-
-          Write-Host "Terraform Directory:"
-          Write-Host $terraformDir
-
-          if (-not (Test-Path $terraformDir)) {
-            Write-Host "##[error]Terraform directory not found!"
-            exit 1
-          }
-
-          Write-Host "Terraform directory found."
-
-    # --------------------------------------------------------
     # TERRAFORM INIT CD
     # --------------------------------------------------------
 
-    - task: TerraformTask@5
+    - task: PowerShell@2
       displayName: 'Terraform Init CD'
       inputs:
-        provider: 'azurerm'
-        command: 'init'
-        workingDirectory: '$(System.DefaultWorkingDirectory)\Azure-Landing-Zone-Terraform_VM\Parent_Module\dev'
-        backendServiceArm: 'shailesh'
-        backendAzureRmResourceGroupName: 'sit'
-        backendAzureRmStorageAccountName: 'sitterraformstate2026'
-        backendAzureRmContainerName: 'tfstate'
-        backendAzureRmKey: 'sit.terraform.tfstate'
+        targetType: 'inline'
+        script: |
+
+          Set-Location "$(TerraformDirectory)"
+
+          Write-Host "=========================================="
+          Write-Host "Terraform Init CD"
+          Write-Host "=========================================="
+
+          terraform init `
+            -backend-config="storage_account_name=sitterraformstate2026" `
+            -backend-config="container_name=tfstate" `
+            -backend-config="key=sit.terraform.tfstate" `
+            -backend-config="resource_group_name=sit" `
+            -backend-config="subscription_id=5ef4ee5d-6bd4-4c27-acc2-af8816fed413" `
+            -backend-config="use_azuread_auth=true"
+
+          if ($LASTEXITCODE -ne 0) {
+
+              Write-Host "##[error]Terraform init CD failed."
+              exit $LASTEXITCODE
+          }
 
     # --------------------------------------------------------
     # TERRAFORM APPLY
@@ -363,25 +453,27 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
-          $terraformDir = "$(System.DefaultWorkingDirectory)\Azure-Landing-Zone-Terraform_VM\Parent_Module\dev"
+
+          Set-Location "$(TerraformDirectory)"
+
           $planFile = "$(Pipeline.Workspace)\terraform-plan\tfplan"
 
-          Set-Location $terraformDir
+          Write-Host "=========================================="
+          Write-Host "Terraform Apply"
+          Write-Host "=========================================="
 
-          Write-Host "Current directory:"
-          Get-Location
+          Write-Host "Terraform Directory:"
+          Write-Host "$(TerraformDirectory)"
 
           Write-Host ""
-          Write-Host "Plan file:"
+          Write-Host "Plan File:"
           Write-Host $planFile
 
           if (-not (Test-Path $planFile)) {
-            Write-Host "##[error]Terraform plan file not found!"
-            exit 1
-          }
 
-          Write-Host ""
-          Write-Host "Running Terraform Apply..."
+              Write-Host "##[error]Terraform plan file not found!"
+              exit 1
+          }
 
           terraform apply `
             -input=false `
@@ -389,8 +481,9 @@ stages:
             $planFile
 
           if ($LASTEXITCODE -ne 0) {
-            Write-Host "##[error]Terraform apply failed."
-            exit $LASTEXITCODE
+
+              Write-Host "##[error]Terraform apply failed."
+              exit $LASTEXITCODE
           }
 
           Write-Host ""
