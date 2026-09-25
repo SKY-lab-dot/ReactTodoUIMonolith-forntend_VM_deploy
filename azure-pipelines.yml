@@ -6,17 +6,6 @@ trigger:
 pool:
   name: Azurecicd
 
-# ============================================================
-# VARIABLES
-# ============================================================
-
-variables:
-  terraformWorkingDirectory: '$(Build.SourcesDirectory)\Parent_Module\dev'
-
-# ============================================================
-# STAGES
-# ============================================================
-
 stages:
 
 # ============================================================
@@ -29,43 +18,94 @@ stages:
   jobs:
 
   - job: TerraformCI
-    displayName: 'Terraform Init and Validate'
+    displayName: 'Terraform CI'
 
     steps:
 
     # --------------------------------------------------------
-    # CHECKOUT MAIN REPOSITORY
+    # CHECKOUT REPOSITORY
     # --------------------------------------------------------
 
     - checkout: self
       displayName: 'Checkout Repository'
 
     # --------------------------------------------------------
-    # SHOW REPOSITORY STRUCTURE
+    # FIND TERRAFORM FILES
     # --------------------------------------------------------
 
     - task: PowerShell@2
-      displayName: 'Check Repository Structure'
+      displayName: 'Find Terraform Files'
       inputs:
         targetType: 'inline'
         script: |
+
           Write-Host "=========================================="
-          Write-Host "Repository Information"
+          Write-Host "BUILD SOURCE DIRECTORY"
           Write-Host "=========================================="
 
-          Write-Host "Build.SourcesDirectory:"
           Write-Host "$(Build.SourcesDirectory)"
 
           Write-Host ""
-          Write-Host "Repository files/folders:"
+          Write-Host "=========================================="
+          Write-Host "ALL FILES"
           Write-Host "=========================================="
 
-          Get-ChildItem "$(Build.SourcesDirectory)" -Recurse |
-            Select-Object FullName |
-            Format-Table -AutoSize
+          Get-ChildItem `
+            -Path "$(Build.SourcesDirectory)" `
+            -Recurse `
+            -File |
+            Select-Object FullName
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "TERRAFORM FILES"
+          Write-Host "=========================================="
+
+          $tfFiles = Get-ChildItem `
+            -Path "$(Build.SourcesDirectory)" `
+            -Recurse `
+            -Filter "*.tf" `
+            -File
+
+          if ($tfFiles.Count -eq 0) {
+
+              Write-Host "##[error]No Terraform (.tf) files found!"
+              Write-Host ""
+              Write-Host "Please check that your Git repository contains Terraform files."
+              exit 1
+          }
+
+          foreach ($file in $tfFiles) {
+              Write-Host $file.FullName
+          }
+
+          # Find directory containing main.tf
+          $mainTf = Get-ChildItem `
+            -Path "$(Build.SourcesDirectory)" `
+            -Recurse `
+            -Filter "main.tf" `
+            -File |
+            Select-Object -First 1
+
+          if ($null -eq $mainTf) {
+
+              Write-Host "##[error]main.tf was not found!"
+              exit 1
+          }
+
+          $terraformDir = $mainTf.Directory.FullName
+
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "TERRAFORM DIRECTORY FOUND"
+          Write-Host "=========================================="
+
+          Write-Host $terraformDir
+
+          Write-Host "##vso[task.setvariable variable=terraformDir]$terraformDir"
 
     # --------------------------------------------------------
-    # CHECK TERRAFORM DIRECTORY
+    # SHOW TERRAFORM DIRECTORY
     # --------------------------------------------------------
 
     - task: PowerShell@2
@@ -73,39 +113,24 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
-          $terraformPath = "$(terraformWorkingDirectory)"
 
           Write-Host "=========================================="
           Write-Host "Terraform Working Directory"
           Write-Host "=========================================="
 
-          Write-Host $terraformPath
+          Write-Host "$(terraformDir)"
 
-          if (-not (Test-Path $terraformPath)) {
+          if (-not (Test-Path "$(terraformDir)")) {
 
-              Write-Host ""
-              Write-Host "##[error]Terraform directory does NOT exist!"
-              Write-Host ""
-              Write-Host "Expected directory:"
-              Write-Host $terraformPath
-              Write-Host ""
-
-              Write-Host "Available directories:"
-              Get-ChildItem "$(Build.SourcesDirectory)" -Directory -Recurse |
-                Select-Object FullName |
-                Format-Table -AutoSize
+              Write-Host "##[error]Terraform directory does not exist!"
 
               exit 1
           }
 
           Write-Host ""
-          Write-Host "Terraform directory found successfully."
+          Write-Host "Terraform directory exists."
 
-          Write-Host ""
-          Write-Host "Terraform files:"
-          Get-ChildItem $terraformPath |
-            Select-Object Name, FullName |
-            Format-Table -AutoSize
+          Get-ChildItem "$(terraformDir)"
 
     # --------------------------------------------------------
     # TERRAFORM VERSION
@@ -116,6 +141,7 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
+
           terraform version
 
     # --------------------------------------------------------
@@ -127,9 +153,10 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
-          Set-Location "$(terraformWorkingDirectory)"
 
-          Write-Host "Current directory:"
+          Set-Location "$(terraformDir)"
+
+          Write-Host "Current Terraform directory:"
           Get-Location
 
           Write-Host ""
@@ -138,7 +165,9 @@ stages:
           terraform init
 
           if ($LASTEXITCODE -ne 0) {
+
               Write-Host "##[error]Terraform init failed."
+
               exit $LASTEXITCODE
           }
 
@@ -151,14 +180,17 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
-          Set-Location "$(terraformWorkingDirectory)"
+
+          Set-Location "$(terraformDir)"
 
           Write-Host "Running Terraform Validate..."
 
           terraform validate
 
           if ($LASTEXITCODE -ne 0) {
+
               Write-Host "##[error]Terraform validate failed."
+
               exit $LASTEXITCODE
           }
 
@@ -167,18 +199,19 @@ stages:
     # --------------------------------------------------------
 
     - task: PowerShell@2
-      displayName: 'Terraform Format Check'
+      displayName: 'Terraform Format'
       inputs:
         targetType: 'inline'
         script: |
-          Set-Location "$(terraformWorkingDirectory)"
 
-          Write-Host "Running Terraform Format Check..."
+          Set-Location "$(terraformDir)"
 
           terraform fmt -check -recursive
 
           if ($LASTEXITCODE -ne 0) {
-              Write-Host "##[error]Terraform formatting check failed."
+
+              Write-Host "##[error]Terraform format check failed."
+
               exit $LASTEXITCODE
           }
 
@@ -201,32 +234,38 @@ stages:
 
     steps:
 
-    # --------------------------------------------------------
-    # CHECKOUT
-    # --------------------------------------------------------
-
     - checkout: self
       displayName: 'Checkout Repository'
 
     # --------------------------------------------------------
-    # CHECK TERRAFORM DIRECTORY
+    # FIND TERRAFORM DIRECTORY
     # --------------------------------------------------------
 
     - task: PowerShell@2
-      displayName: 'Verify Terraform Directory'
+      displayName: 'Find Terraform Directory'
       inputs:
         targetType: 'inline'
         script: |
-          $terraformPath = "$(terraformWorkingDirectory)"
 
-          if (-not (Test-Path $terraformPath)) {
-              Write-Host "##[error]Terraform directory not found:"
-              Write-Host $terraformPath
+          $mainTf = Get-ChildItem `
+            -Path "$(Build.SourcesDirectory)" `
+            -Recurse `
+            -Filter "main.tf" `
+            -File |
+            Select-Object -First 1
+
+          if ($null -eq $mainTf) {
+
+              Write-Host "##[error]main.tf was not found!"
               exit 1
           }
 
-          Write-Host "Terraform directory found:"
-          Write-Host $terraformPath
+          $terraformDir = $mainTf.Directory.FullName
+
+          Write-Host "Terraform Directory:"
+          Write-Host $terraformDir
+
+          Write-Host "##vso[task.setvariable variable=terraformDir]$terraformDir"
 
     # --------------------------------------------------------
     # TERRAFORM INIT
@@ -237,12 +276,15 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
-          Set-Location "$(terraformWorkingDirectory)"
+
+          Set-Location "$(terraformDir)"
 
           terraform init
 
           if ($LASTEXITCODE -ne 0) {
+
               Write-Host "##[error]Terraform init failed."
+
               exit $LASTEXITCODE
           }
 
@@ -255,14 +297,17 @@ stages:
       inputs:
         targetType: 'inline'
         script: |
-          Set-Location "$(terraformWorkingDirectory)"
+
+          Set-Location "$(terraformDir)"
 
           Write-Host "Running Terraform Plan..."
 
           terraform plan -out=tfplan
 
           if ($LASTEXITCODE -ne 0) {
+
               Write-Host "##[error]Terraform plan failed."
+
               exit $LASTEXITCODE
           }
 
@@ -273,7 +318,7 @@ stages:
     - task: PublishPipelineArtifact@1
       displayName: 'Publish Terraform Plan'
       inputs:
-        targetPath: '$(terraformWorkingDirectory)\tfplan'
+        targetPath: '$(terraformDir)\tfplan'
         artifact: 'terraform-plan'
 
 
@@ -303,15 +348,41 @@ stages:
 
           steps:
 
-          # --------------------------------------------------
-          # CHECKOUT
-          # --------------------------------------------------
-
           - checkout: self
             displayName: 'Checkout Repository'
 
           # --------------------------------------------------
-          # DOWNLOAD PLAN
+          # FIND TERRAFORM DIRECTORY
+          # --------------------------------------------------
+
+          - task: PowerShell@2
+            displayName: 'Find Terraform Directory'
+            inputs:
+              targetType: 'inline'
+              script: |
+
+                $mainTf = Get-ChildItem `
+                  -Path "$(Build.SourcesDirectory)" `
+                  -Recurse `
+                  -Filter "main.tf" `
+                  -File |
+                  Select-Object -First 1
+
+                if ($null -eq $mainTf) {
+
+                    Write-Host "##[error]main.tf was not found!"
+                    exit 1
+                }
+
+                $terraformDir = $mainTf.Directory.FullName
+
+                Write-Host "Terraform Directory:"
+                Write-Host $terraformDir
+
+                Write-Host "##vso[task.setvariable variable=terraformDir]$terraformDir"
+
+          # --------------------------------------------------
+          # DOWNLOAD TERRAFORM PLAN
           # --------------------------------------------------
 
           - task: DownloadPipelineArtifact@2
@@ -319,26 +390,6 @@ stages:
             inputs:
               artifact: 'terraform-plan'
               path: '$(Pipeline.Workspace)\terraform-plan'
-
-          # --------------------------------------------------
-          # CHECK TERRAFORM DIRECTORY
-          # --------------------------------------------------
-
-          - task: PowerShell@2
-            displayName: 'Verify Terraform Directory'
-            inputs:
-              targetType: 'inline'
-              script: |
-                $terraformPath = "$(terraformWorkingDirectory)"
-
-                if (-not (Test-Path $terraformPath)) {
-                    Write-Host "##[error]Terraform directory not found:"
-                    Write-Host $terraformPath
-                    exit 1
-                }
-
-                Write-Host "Terraform directory found:"
-                Write-Host $terraformPath
 
           # --------------------------------------------------
           # TERRAFORM INIT
@@ -349,12 +400,15 @@ stages:
             inputs:
               targetType: 'inline'
               script: |
-                Set-Location "$(terraformWorkingDirectory)"
+
+                Set-Location "$(terraformDir)"
 
                 terraform init
 
                 if ($LASTEXITCODE -ne 0) {
+
                     Write-Host "##[error]Terraform init failed."
+
                     exit $LASTEXITCODE
                 }
 
@@ -367,25 +421,33 @@ stages:
             inputs:
               targetType: 'inline'
               script: |
-                Set-Location "$(terraformWorkingDirectory)"
+
+                Set-Location "$(terraformDir)"
 
                 $planFile = "$(Pipeline.Workspace)\terraform-plan\tfplan"
 
+                Write-Host "Plan file:"
+                Write-Host $planFile
+
                 if (-not (Test-Path $planFile)) {
-                    Write-Host "##[error]Terraform plan file not found:"
-                    Write-Host $planFile
+
+                    Write-Host "##[error]Terraform plan file not found!"
+
                     exit 1
                 }
 
-                Write-Host "Applying Terraform plan..."
+                Write-Host "Running Terraform Apply..."
 
                 terraform apply -auto-approve $planFile
 
                 if ($LASTEXITCODE -ne 0) {
+
                     Write-Host "##[error]Terraform apply failed."
+
                     exit $LASTEXITCODE
                 }
 
+                Write-Host ""
                 Write-Host "=========================================="
-                Write-Host "Terraform Apply Completed Successfully"
+                Write-Host "Terraform Apply Completed"
                 Write-Host "=========================================="
