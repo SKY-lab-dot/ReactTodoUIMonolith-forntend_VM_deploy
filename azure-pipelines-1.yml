@@ -18,7 +18,7 @@ variables:
 stages:
 
 # ============================================================
-# STAGE 1 - TFLINT + TFSEC + TERRAFORM VALIDATE
+# STAGE 1 - VALIDATE + TFLINT + TFSEC
 # ============================================================
 
 - stage: Validate
@@ -34,24 +34,22 @@ stages:
     - checkout: self
       displayName: "Checkout Repository"
 
-    # ========================================================
+    # --------------------------------------------------------
     # Install Terraform
-    # ========================================================
+    # --------------------------------------------------------
 
     - task: TerraformInstaller@1
       displayName: "Install Terraform"
       inputs:
         terraformVersion: "latest"
 
-    # ========================================================
+    # --------------------------------------------------------
     # Install TFLint
-    # ========================================================
+    # --------------------------------------------------------
 
     - powershell: |
 
-        Write-Host "========================================="
-        Write-Host "Installing TFLint"
-        Write-Host "========================================="
+        Write-Host "Installing TFLint..."
 
         $version = "v0.59.1"
 
@@ -60,76 +58,59 @@ stages:
         $zipPath = "$(Agent.TempDirectory)\tflint.zip"
         $installPath = "$(Agent.TempDirectory)\tflint"
 
-        Write-Host "Downloading TFLint from:"
-        Write-Host $url
-
         Invoke-WebRequest `
           -Uri $url `
           -OutFile $zipPath
-
-        Write-Host "Extracting TFLint..."
 
         Expand-Archive `
           -Path $zipPath `
           -DestinationPath $installPath `
           -Force
 
-        Write-Host "Copying TFLint executable..."
-
         Copy-Item `
           "$installPath\tflint.exe" `
           "$(Agent.ToolsDirectory)\tflint.exe" `
           -Force
 
-        Write-Host "TFLint Version:"
-
         & "$(Agent.ToolsDirectory)\tflint.exe" --version
 
       displayName: "Install TFLint"
 
-    # ========================================================
+    # --------------------------------------------------------
     # Run TFLint
-    # ========================================================
+    # --------------------------------------------------------
 
     - powershell: |
 
-        Write-Host "========================================="
-        Write-Host "Running TFLint"
-        Write-Host "========================================="
+        Write-Host "Running TFLint..."
 
         Set-Location "$(Build.SourcesDirectory)"
-
-        Write-Host "Initializing TFLint..."
 
         & "$(Agent.ToolsDirectory)\tflint.exe" --init
 
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "TFLint initialization failed."
-            exit 1
+          Write-Error "TFLint initialization failed."
+          exit 1
         }
-
-        Write-Host "Running TFLint scan..."
 
         & "$(Agent.ToolsDirectory)\tflint.exe"
 
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "TFLint found issues."
-            exit 1
+          Write-Error "TFLint found issues."
+          exit 1
         }
 
-        Write-Host "TFLint scan completed successfully."
+        Write-Host "TFLint completed successfully."
 
       displayName: "Run TFLint"
 
-    # ========================================================
+    # --------------------------------------------------------
     # Install tfsec
-    # ========================================================
+    # --------------------------------------------------------
 
     - powershell: |
 
-        Write-Host "========================================="
-        Write-Host "Installing tfsec"
-        Write-Host "========================================="
+        Write-Host "Installing tfsec..."
 
         $version = "v1.28.14"
 
@@ -137,45 +118,38 @@ stages:
 
         $tfsecPath = "$(Agent.ToolsDirectory)\tfsec.exe"
 
-        Write-Host "Downloading tfsec from:"
-        Write-Host $url
-
         Invoke-WebRequest `
           -Uri $url `
           -OutFile $tfsecPath
-
-        Write-Host "tfsec Version:"
 
         & $tfsecPath --version
 
       displayName: "Install tfsec"
 
-    # ========================================================
+    # --------------------------------------------------------
     # Run tfsec
-    # ========================================================
+    # --------------------------------------------------------
 
     - powershell: |
 
-        Write-Host "========================================="
-        Write-Host "Running tfsec Security Scan"
-        Write-Host "========================================="
+        Write-Host "Running tfsec security scan..."
 
         Set-Location "$(Build.SourcesDirectory)"
 
         & "$(Agent.ToolsDirectory)\tfsec.exe" .
 
         if ($LASTEXITCODE -ne 0) {
-            Write-Error "tfsec found security issues."
-            exit 1
+          Write-Error "tfsec found security issues."
+          exit 1
         }
 
-        Write-Host "tfsec security scan completed successfully."
+        Write-Host "tfsec completed successfully."
 
       displayName: "Run tfsec"
 
-    # ========================================================
+    # --------------------------------------------------------
     # Terraform Init
-    # ========================================================
+    # --------------------------------------------------------
 
     - task: TerraformTask@5
       displayName: "Terraform Init"
@@ -193,9 +167,9 @@ stages:
 
         backendAzureRmKey: "sit.terraform.tfstate"
 
-    # ========================================================
+    # --------------------------------------------------------
     # Terraform Validate
-    # ========================================================
+    # --------------------------------------------------------
 
     - task: TerraformTask@5
       displayName: "Terraform Validate"
@@ -225,18 +199,18 @@ stages:
     - checkout: self
       displayName: "Checkout Repository"
 
-    # ========================================================
+    # --------------------------------------------------------
     # Install Terraform
-    # ========================================================
+    # --------------------------------------------------------
 
     - task: TerraformInstaller@1
       displayName: "Install Terraform"
       inputs:
         terraformVersion: "latest"
 
-    # ========================================================
+    # --------------------------------------------------------
     # Terraform Init
-    # ========================================================
+    # --------------------------------------------------------
 
     - task: TerraformTask@5
       displayName: "Terraform Init"
@@ -254,9 +228,9 @@ stages:
 
         backendAzureRmKey: "sit.terraform.tfstate"
 
-    # ========================================================
+    # --------------------------------------------------------
     # Terraform Plan
-    # ========================================================
+    # --------------------------------------------------------
 
     - task: TerraformTask@5
       displayName: "Terraform Plan"
@@ -268,9 +242,9 @@ stages:
 
         commandOptions: "-out=$(Build.ArtifactStagingDirectory)/tfplan"
 
-    # ========================================================
+    # --------------------------------------------------------
     # Publish Terraform Plan
-    # ========================================================
+    # --------------------------------------------------------
 
     - task: PublishPipelineArtifact@1
       displayName: "Publish Terraform Plan"
@@ -284,7 +258,7 @@ stages:
 # ============================================================
 
 - stage: Approval
-  displayName: "Manual Approval"
+  displayName: "Manual Approval - Terraform Apply"
 
   dependsOn: Plan
 
@@ -293,9 +267,11 @@ stages:
   jobs:
 
   - job: ManualApproval
-    displayName: "Waiting for Manual Approval"
+    displayName: "Waiting for Terraform Apply Approval"
 
     pool: server
+
+    timeoutInMinutes: 1440
 
     steps:
 
@@ -310,11 +286,24 @@ stages:
           $(Build.RequestedForEmail)
 
         instructions: |
+          ================================================
+          TERRAFORM MANUAL APPROVAL REQUIRED
+          ================================================
+
           Terraform Plan has completed successfully.
 
-          Please review the Terraform Plan before approving.
+          Please review the Terraform Plan artifact:
 
-          Approve this validation to continue with Terraform Apply.
+          Artifact Name:
+          terraform-plan
+
+          If the Terraform changes are correct,
+          approve this validation.
+
+          After approval, Terraform Apply will start.
+
+          If the changes are not correct,
+          reject this validation.
 
         onTimeout: "reject"
 
@@ -340,9 +329,9 @@ stages:
     - checkout: self
       displayName: "Checkout Repository"
 
-    # ========================================================
+    # --------------------------------------------------------
     # Install Terraform
-    # ========================================================
+    # --------------------------------------------------------
 
     - task: TerraformInstaller@1
       displayName: "Install Terraform"
@@ -350,9 +339,9 @@ stages:
       inputs:
         terraformVersion: "latest"
 
-    # ========================================================
-    # Download Approved Plan
-    # ========================================================
+    # --------------------------------------------------------
+    # Download Approved Terraform Plan
+    # --------------------------------------------------------
 
     - task: DownloadPipelineArtifact@2
       displayName: "Download Terraform Plan"
@@ -364,9 +353,9 @@ stages:
 
         targetPath: "$(Pipeline.Workspace)/terraform-plan"
 
-    # ========================================================
+    # --------------------------------------------------------
     # Terraform Init
-    # ========================================================
+    # --------------------------------------------------------
 
     - task: TerraformTask@5
       displayName: "Terraform Init"
@@ -386,9 +375,9 @@ stages:
 
         backendAzureRmKey: "sit.terraform.tfstate"
 
-    # ========================================================
-    # Terraform Apply Approved Plan
-    # ========================================================
+    # --------------------------------------------------------
+    # Terraform Apply
+    # --------------------------------------------------------
 
     - task: TerraformTask@5
       displayName: "Terraform Apply Approved Plan"
