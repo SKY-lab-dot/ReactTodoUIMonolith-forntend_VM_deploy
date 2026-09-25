@@ -11,7 +11,7 @@ pool:
 # ============================================================
 
 variables:
-  terraformWorkingDirectory: ✅ $(Build.SourcesDirectory)
+  terraformWorkingDirectory: $terraformDir = "$(Build.SourcesDirectory)"
 
 # ============================================================
 # STAGES
