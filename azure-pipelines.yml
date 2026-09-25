@@ -266,8 +266,7 @@ stages:
 
         environmentServiceNameAzureRM: "shailesh"
 
-        commandOptions: "-out=$(Build.ArtifactStagingDirectory)/tfplan"
-
+        commandOptions: '-out="$(Build.ArtifactStagingDirectory)\tfplan"'
     # ========================================================
     # Publish Terraform Plan
     # ========================================================
