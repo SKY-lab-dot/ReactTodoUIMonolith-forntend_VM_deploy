@@ -1,507 +1,403 @@
-name: azurelandingzoneYMALpipeline
-
 trigger:
-- main
+  branches:
+    include:
+      - main
+      - feature
+
+pr:
+  branches:
+    include:
+      - main
 
 pool:
   name: Azurecicd
 
+variables:
+  - group: dev
+
 stages:
 
 # ============================================================
-# CI STAGE
+# STAGE 1 - TFLINT + TFSEC + TERRAFORM VALIDATE
 # ============================================================
 
-- stage: CI
-  displayName: 'Terraform CI'
+- stage: Validate
+  displayName: "Terraform Validate & Security"
 
   jobs:
 
-  - job: CIWork
-    displayName: 'Terraform CI Work'
+  - job: ValidateJob
+    displayName: "TFLint, tfsec & Terraform Validate"
 
     steps:
 
-    # --------------------------------------------------------
-    # CHECKOUT
-    # --------------------------------------------------------
-
     - checkout: self
-      displayName: 'Checkout Repository'
+      displayName: "Checkout Repository"
 
-    # --------------------------------------------------------
-    # SHOW REPOSITORY CONTENT
-    # --------------------------------------------------------
-
-    - task: PowerShell@2
-      displayName: 'Find Terraform Files'
-      inputs:
-        targetType: 'inline'
-        script: |
-
-          Write-Host "=========================================="
-          Write-Host "Repository Root"
-          Write-Host "=========================================="
-
-          Write-Host "$(System.DefaultWorkingDirectory)"
-
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "All Terraform Files"
-          Write-Host "=========================================="
-
-          $tfFiles = Get-ChildItem `
-            -Path "$(System.DefaultWorkingDirectory)" `
-            -Recurse `
-            -Filter "*.tf" `
-            -File
-
-          if ($tfFiles.Count -eq 0) {
-
-              Write-Host "##[error]No Terraform (.tf) files found in repository!"
-
-              Write-Host ""
-              Write-Host "Repository content:"
-
-              Get-ChildItem `
-                -Path "$(System.DefaultWorkingDirectory)" `
-                -Recurse |
-                Select-Object FullName
-
-              exit 1
-          }
-
-          foreach ($file in $tfFiles) {
-              Write-Host $file.FullName
-          }
-
-          # Take directory of first Terraform file
-          $terraformDir = $tfFiles[0].DirectoryName
-
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "Terraform Working Directory"
-          Write-Host "=========================================="
-
-          Write-Host $terraformDir
-
-          # Save Terraform directory for next tasks
-          Write-Host "##vso[task.setvariable variable=TerraformDirectory]$terraformDir"
-
-    # --------------------------------------------------------
-    # AZURE LOGIN
-    # --------------------------------------------------------
-
-    - task: AzureCLI@3
-      displayName: 'Azure CLI Login'
-      inputs:
-        connectionType: 'azureRM'
-        azureSubscription: 'shailesh'
-        scriptType: 'ps'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-
-          Write-Host "=========================================="
-          Write-Host "Azure Account"
-          Write-Host "=========================================="
-
-          az account show
-
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "Resource Groups"
-          Write-Host "=========================================="
-
-          az group list --output table
-
-    # --------------------------------------------------------
-    # TERRAFORM INSTALL
-    # --------------------------------------------------------
+    # ========================================================
+    # Install Terraform
+    # ========================================================
 
     - task: TerraformInstaller@1
-      displayName: 'Terraform Install'
+      displayName: "Install Terraform"
       inputs:
-        terraformVersion: 'latest'
+        terraformVersion: "latest"
 
-    # --------------------------------------------------------
-    # CHECK TERRAFORM DIRECTORY
-    # --------------------------------------------------------
+    # ========================================================
+    # Install TFLint
+    # ========================================================
 
-    - task: PowerShell@2
-      displayName: 'Check Terraform Directory'
+    - powershell: |
+
+        Write-Host "========================================="
+        Write-Host "Installing TFLint"
+        Write-Host "========================================="
+
+        $version = "v0.59.1"
+
+        $url = "https://github.com/terraform-linters/tflint/releases/download/$version/tflint_windows_amd64.zip"
+
+        $zipPath = "$(Agent.TempDirectory)\tflint.zip"
+        $installPath = "$(Agent.TempDirectory)\tflint"
+
+        Write-Host "Downloading TFLint from:"
+        Write-Host $url
+
+        Invoke-WebRequest `
+          -Uri $url `
+          -OutFile $zipPath
+
+        Write-Host "Extracting TFLint..."
+
+        Expand-Archive `
+          -Path $zipPath `
+          -DestinationPath $installPath `
+          -Force
+
+        Write-Host "Copying TFLint executable..."
+
+        Copy-Item `
+          "$installPath\tflint.exe" `
+          "$(Agent.ToolsDirectory)\tflint.exe" `
+          -Force
+
+        Write-Host "TFLint Version:"
+
+        & "$(Agent.ToolsDirectory)\tflint.exe" --version
+
+      displayName: "Install TFLint"
+
+    # ========================================================
+    # Run TFLint
+    # ========================================================
+
+    - powershell: |
+
+        Write-Host "========================================="
+        Write-Host "Running TFLint"
+        Write-Host "========================================="
+
+        Set-Location "$(Build.SourcesDirectory)"
+
+        Write-Host "Initializing TFLint..."
+
+        & "$(Agent.ToolsDirectory)\tflint.exe" --init
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "TFLint initialization failed."
+            exit 1
+        }
+
+        Write-Host "Running TFLint scan..."
+
+        & "$(Agent.ToolsDirectory)\tflint.exe"
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "TFLint found issues."
+            exit 1
+        }
+
+        Write-Host "TFLint scan completed successfully."
+
+      displayName: "Run TFLint"
+
+    # ========================================================
+    # Install tfsec
+    # ========================================================
+
+    - powershell: |
+
+        Write-Host "========================================="
+        Write-Host "Installing tfsec"
+        Write-Host "========================================="
+
+        $version = "v1.28.14"
+
+        $url = "https://github.com/aquasecurity/tfsec/releases/download/$version/tfsec-windows-amd64.exe"
+
+        $tfsecPath = "$(Agent.ToolsDirectory)\tfsec.exe"
+
+        Write-Host "Downloading tfsec from:"
+        Write-Host $url
+
+        Invoke-WebRequest `
+          -Uri $url `
+          -OutFile $tfsecPath
+
+        Write-Host "tfsec Version:"
+
+        & $tfsecPath --version
+
+      displayName: "Install tfsec"
+
+    # ========================================================
+    # Run tfsec
+    # ========================================================
+
+    - powershell: |
+
+        Write-Host "========================================="
+        Write-Host "Running tfsec Security Scan"
+        Write-Host "========================================="
+
+        Set-Location "$(Build.SourcesDirectory)"
+
+        & "$(Agent.ToolsDirectory)\tfsec.exe" .
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "tfsec found security issues."
+            exit 1
+        }
+
+        Write-Host "tfsec security scan completed successfully."
+
+      displayName: "Run tfsec"
+
+    # ========================================================
+    # Terraform Init
+    # ========================================================
+
+    - task: TerraformTask@5
+      displayName: "Terraform Init"
       inputs:
-        targetType: 'inline'
-        script: |
+        provider: "azurerm"
+        command: "init"
 
-          Write-Host "=========================================="
-          Write-Host "Terraform Directory"
-          Write-Host "=========================================="
+        backendServiceArm: "shailesh"
 
-          Write-Host "$(TerraformDirectory)"
+        backendAzureRmResourceGroupName: "sit"
 
-          if (-not (Test-Path "$(TerraformDirectory)")) {
+        backendAzureRmStorageAccountName: "sitterraformstate2026"
 
-              Write-Host "##[error]Terraform directory not found!"
-              exit 1
-          }
+        backendAzureRmContainerName: "tfstate"
 
-          Write-Host ""
-          Write-Host "Terraform files:"
+        backendAzureRmKey: "sit.terraform.tfstate"
 
-          Get-ChildItem "$(TerraformDirectory)" -Filter "*.tf"
+    # ========================================================
+    # Terraform Validate
+    # ========================================================
 
-    # --------------------------------------------------------
-    # TERRAFORM INIT
-    # --------------------------------------------------------
-
-    - task: PowerShell@2
-      displayName: 'Terraform Init'
+    - task: TerraformTask@5
+      displayName: "Terraform Validate"
       inputs:
-        targetType: 'inline'
-        script: |
-
-          Set-Location "$(TerraformDirectory)"
-
-          Write-Host "=========================================="
-          Write-Host "Terraform Version"
-          Write-Host "=========================================="
-
-          terraform version
-
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "Terraform Init"
-          Write-Host "=========================================="
-
-          terraform init `
-            -backend-config="storage_account_name=sitterraformstate2026" `
-            -backend-config="container_name=tfstate" `
-            -backend-config="key=sit.terraform.tfstate" `
-            -backend-config="resource_group_name=sit" `
-            -backend-config="subscription_id=5ef4ee5d-6bd4-4c27-acc2-af8816fed413" `
-            -backend-config="use_azuread_auth=true"
-
-          if ($LASTEXITCODE -ne 0) {
-
-              Write-Host "##[error]Terraform init failed."
-              exit $LASTEXITCODE
-          }
-
-    # --------------------------------------------------------
-    # TERRAFORM VALIDATE
-    # --------------------------------------------------------
-
-    - task: PowerShell@2
-      displayName: 'Terraform Validate'
-      inputs:
-        targetType: 'inline'
-        script: |
-
-          Set-Location "$(TerraformDirectory)"
-
-          Write-Host "=========================================="
-          Write-Host "Terraform Validate"
-          Write-Host "=========================================="
-
-          terraform validate
-
-          if ($LASTEXITCODE -ne 0) {
-
-              Write-Host "##[error]Terraform validate failed."
-              exit $LASTEXITCODE
-          }
-
-    # --------------------------------------------------------
-    # TERRAFORM PLAN
-    # --------------------------------------------------------
-
-    - task: PowerShell@2
-      displayName: 'Terraform Plan'
-      inputs:
-        targetType: 'inline'
-        script: |
-
-          Set-Location "$(TerraformDirectory)"
-
-          Write-Host "=========================================="
-          Write-Host "Terraform Plan"
-          Write-Host "=========================================="
-
-          terraform plan `
-            -input=false `
-            -out="$(Build.ArtifactStagingDirectory)\tfplan"
-
-          if ($LASTEXITCODE -ne 0) {
-
-              Write-Host "##[error]Terraform plan failed."
-              exit $LASTEXITCODE
-          }
-
-    # --------------------------------------------------------
-    # CHECK PLAN
-    # --------------------------------------------------------
-
-    - task: PowerShell@2
-      displayName: 'Check Terraform Plan File'
-      inputs:
-        targetType: 'inline'
-        script: |
-
-          $planFile = "$(Build.ArtifactStagingDirectory)\tfplan"
-
-          Write-Host "=========================================="
-          Write-Host "Terraform Plan File"
-          Write-Host "=========================================="
-
-          Write-Host $planFile
-
-          if (-not (Test-Path $planFile)) {
-
-              Write-Host "##[error]Terraform plan file not found!"
-              exit 1
-          }
-
-          Write-Host "Terraform plan file exists."
-
-          Get-ChildItem `
-            "$(Build.ArtifactStagingDirectory)" `
-            -Recurse
-
-    # --------------------------------------------------------
-    # PUBLISH PLAN
-    # --------------------------------------------------------
-
-    - task: PublishBuildArtifacts@1
-      displayName: 'Publish Terraform Plan'
-      inputs:
-        PathtoPublish: '$(Build.ArtifactStagingDirectory)\tfplan'
-        ArtifactName: 'terraform-plan'
-        publishLocation: 'Container'
+        provider: "azurerm"
+        command: "validate"
 
 
 # ============================================================
-# CD STAGE
+# STAGE 2 - TERRAFORM PLAN
 # ============================================================
 
-- stage: CD
-  displayName: 'Terraform CD'
+- stage: Plan
+  displayName: "Terraform Plan"
 
-  dependsOn: CI
+  dependsOn: Validate
 
   condition: succeeded()
 
   jobs:
 
-  - job: CDWork
-    displayName: 'Terraform CD Work'
+  - job: PlanJob
+    displayName: "Terraform Plan"
 
     steps:
 
-    # --------------------------------------------------------
-    # CHECKOUT
-    # --------------------------------------------------------
-
     - checkout: self
-      displayName: 'Checkout Repository'
+      displayName: "Checkout Repository"
 
-    # --------------------------------------------------------
-    # FIND TERRAFORM FILES AGAIN
-    # --------------------------------------------------------
-
-    - task: PowerShell@2
-      displayName: 'Find Terraform Directory CD'
-      inputs:
-        targetType: 'inline'
-        script: |
-
-          Write-Host "=========================================="
-          Write-Host "Searching Terraform Files"
-          Write-Host "=========================================="
-
-          $tfFiles = Get-ChildItem `
-            -Path "$(System.DefaultWorkingDirectory)" `
-            -Recurse `
-            -Filter "*.tf" `
-            -File
-
-          if ($tfFiles.Count -eq 0) {
-
-              Write-Host "##[error]No Terraform files found!"
-              exit 1
-          }
-
-          foreach ($file in $tfFiles) {
-              Write-Host $file.FullName
-          }
-
-          $terraformDir = $tfFiles[0].DirectoryName
-
-          Write-Host ""
-          Write-Host "Terraform Directory:"
-          Write-Host $terraformDir
-
-          Write-Host "##vso[task.setvariable variable=TerraformDirectory]$terraformDir"
-
-    # --------------------------------------------------------
-    # DOWNLOAD PLAN
-    # --------------------------------------------------------
-
-    - task: DownloadBuildArtifacts@1
-      displayName: 'Download Terraform Plan'
-      inputs:
-        buildType: 'current'
-        downloadType: 'single'
-        artifactName: 'terraform-plan'
-        downloadPath: '$(Pipeline.Workspace)'
-
-    # --------------------------------------------------------
-    # CHECK DOWNLOADED PLAN
-    # --------------------------------------------------------
-
-    - task: PowerShell@2
-      displayName: 'Check Downloaded Terraform Plan'
-      inputs:
-        targetType: 'inline'
-        script: |
-
-          Write-Host "=========================================="
-          Write-Host "Downloaded Terraform Plan"
-          Write-Host "=========================================="
-
-          Get-ChildItem `
-            "$(Pipeline.Workspace)" `
-            -Recurse
-
-          $planFile = "$(Pipeline.Workspace)\terraform-plan\tfplan"
-
-          if (-not (Test-Path $planFile)) {
-
-              Write-Host "##[error]Terraform plan file not found!"
-              Write-Host "Expected:"
-              Write-Host $planFile
-
-              exit 1
-          }
-
-          Write-Host "Terraform plan found:"
-          Write-Host $planFile
-
-    # --------------------------------------------------------
-    # AZURE LOGIN
-    # --------------------------------------------------------
-
-    - task: AzureCLI@3
-      displayName: 'Azure CLI Login CD'
-      inputs:
-        connectionType: 'azureRM'
-        azureSubscription: 'shailesh'
-        scriptType: 'ps'
-        scriptLocation: 'inlineScript'
-        inlineScript: |
-
-          Write-Host "=========================================="
-          Write-Host "Azure Account"
-          Write-Host "=========================================="
-
-          az account show
-
-    # --------------------------------------------------------
-    # TERRAFORM INSTALL
-    # --------------------------------------------------------
+    # ========================================================
+    # Install Terraform
+    # ========================================================
 
     - task: TerraformInstaller@1
-      displayName: 'Terraform Install'
+      displayName: "Install Terraform"
       inputs:
-        terraformVersion: 'latest'
+        terraformVersion: "latest"
 
-    # --------------------------------------------------------
-    # TERRAFORM INIT CD
-    # --------------------------------------------------------
+    # ========================================================
+    # Terraform Init
+    # ========================================================
 
-    - task: PowerShell@2
-      displayName: 'Terraform Init CD'
+    - task: TerraformTask@5
+      displayName: "Terraform Init"
       inputs:
-        targetType: 'inline'
-        script: |
+        provider: "azurerm"
+        command: "init"
 
-          Set-Location "$(TerraformDirectory)"
+        backendServiceArm: "shailesh"
 
-          Write-Host "=========================================="
-          Write-Host "Terraform Init CD"
-          Write-Host "=========================================="
+        backendAzureRmResourceGroupName: "sit"
 
-          terraform init `
-            -backend-config="storage_account_name=sitterraformstate2026" `
-            -backend-config="container_name=tfstate" `
-            -backend-config="key=sit.terraform.tfstate" `
-            -backend-config="resource_group_name=sit" `
-            -backend-config="subscription_id=5ef4ee5d-6bd4-4c27-acc2-af8816fed413" `
-            -backend-config="use_azuread_auth=true"
+        backendAzureRmStorageAccountName: "sitterraformstate2026"
 
-          if ($LASTEXITCODE -ne 0) {
+        backendAzureRmContainerName: "tfstate"
 
-              Write-Host "##[error]Terraform init CD failed."
-              exit $LASTEXITCODE
-          }
+        backendAzureRmKey: "sit.terraform.tfstate"
 
-    # --------------------------------------------------------
-    # TERRAFORM APPLY
-    # --------------------------------------------------------
+    # ========================================================
+    # Terraform Plan
+    # ========================================================
 
-    - task: PowerShell@2
-      displayName: 'Terraform Apply'
+    - task: TerraformTask@5
+      displayName: "Terraform Plan"
       inputs:
-        targetType: 'inline'
-        script: |
+        provider: "azurerm"
+        command: "plan"
 
-          Set-Location "$(TerraformDirectory)"
+        environmentServiceNameAzureRM: "shailesh"
 
-          $planFile = "$(Pipeline.Workspace)\terraform-plan\tfplan"
+        commandOptions: "-out=$(Build.ArtifactStagingDirectory)/tfplan"
 
-          Write-Host "=========================================="
-          Write-Host "Terraform Apply"
-          Write-Host "=========================================="
+    # ========================================================
+    # Publish Terraform Plan
+    # ========================================================
 
-          Write-Host "Terraform Directory:"
-          Write-Host "$(TerraformDirectory)"
+    - task: PublishPipelineArtifact@1
+      displayName: "Publish Terraform Plan"
+      inputs:
+        targetPath: "$(Build.ArtifactStagingDirectory)/tfplan"
+        artifact: "terraform-plan"
 
-          Write-Host ""
-          Write-Host "Plan File:"
-          Write-Host $planFile
 
-          if (-not (Test-Path $planFile)) {
+# ============================================================
+# STAGE 3 - MANUAL APPROVAL
+# ============================================================
 
-              Write-Host "##[error]Terraform plan file not found!"
-              exit 1
-          }
+- stage: Approval
+  displayName: "Manual Approval"
 
-          terraform apply `
-            -input=false `
-            -auto-approve `
-            $planFile
+  dependsOn: Plan
 
-          if ($LASTEXITCODE -ne 0) {
+  condition: succeeded()
 
-              Write-Host "##[error]Terraform apply failed."
-              exit $LASTEXITCODE
-          }
+  jobs:
 
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host "Terraform Apply Completed Successfully"
-          Write-Host "=========================================="
+  - job: ManualApproval
+    displayName: "Waiting for Manual Approval"
 
-                  - task: AzureCLI@3
-          displayName: 'Identify Azure DevOps Identity'
-          inputs:
-            connectionType: 'azureRM'
-            azureSubscription: 'shailesh'
-            scriptType: 'ps'
-            scriptLocation: 'inlineScript'
-            inlineScript: |
-              Write-Host "Azure subscription:"
-              az account show --query "{Subscription:id,Tenant:tenantId}" -o table
+    pool: server
 
-              Write-Host ""
-              Write-Host "Azure identity:"
-              az account show --query "user" -o json
+    steps:
+
+    - task: ManualValidation@0
+      displayName: "Approve Terraform Apply"
+
+      timeoutInMinutes: 1440
+
+      inputs:
+
+        notifyUsers: |
+          $(Build.RequestedForEmail)
+
+        instructions: |
+          Terraform Plan has completed successfully.
+
+          Please review the Terraform Plan before approving.
+
+          Approve this validation to continue with Terraform Apply.
+
+        onTimeout: "reject"
+
+
+# ============================================================
+# STAGE 4 - TERRAFORM APPLY
+# ============================================================
+
+- stage: Apply
+  displayName: "Terraform Apply"
+
+  dependsOn: Approval
+
+  condition: succeeded()
+
+  jobs:
+
+  - job: ApplyJob
+    displayName: "Terraform Apply"
+
+    steps:
+
+    - checkout: self
+      displayName: "Checkout Repository"
+
+    # ========================================================
+    # Install Terraform
+    # ========================================================
+
+    - task: TerraformInstaller@1
+      displayName: "Install Terraform"
+
+      inputs:
+        terraformVersion: "latest"
+
+    # ========================================================
+    # Download Approved Plan
+    # ========================================================
+
+    - task: DownloadPipelineArtifact@2
+      displayName: "Download Terraform Plan"
+
+      inputs:
+        buildType: "current"
+
+        artifactName: "terraform-plan"
+
+        targetPath: "$(Pipeline.Workspace)/terraform-plan"
+
+    # ========================================================
+    # Terraform Init
+    # ========================================================
+
+    - task: TerraformTask@5
+      displayName: "Terraform Init"
+
+      inputs:
+        provider: "azurerm"
+
+        command: "init"
+
+        backendServiceArm: "shailesh"
+
+        backendAzureRmResourceGroupName: "sit"
+
+        backendAzureRmStorageAccountName: "sitterraformstate2026"
+
+        backendAzureRmContainerName: "tfstate"
+
+        backendAzureRmKey: "sit.terraform.tfstate"
+
+    # ========================================================
+    # Terraform Apply Approved Plan
+    # ========================================================
+
+    - task: TerraformTask@5
+      displayName: "Terraform Apply Approved Plan"
+
+      inputs:
+        provider: "azurerm"
+
+        command: "apply"
+
+        environmentServiceNameAzureRM: "shailesh"
+
+        commandOptions: "$(Pipeline.Workspace)/terraform-plan/tfplan"
