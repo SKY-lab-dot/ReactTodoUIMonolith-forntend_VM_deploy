@@ -490,3 +490,18 @@ stages:
           Write-Host "=========================================="
           Write-Host "Terraform Apply Completed Successfully"
           Write-Host "=========================================="
+
+                  - task: AzureCLI@3
+          displayName: 'Identify Azure DevOps Identity'
+          inputs:
+            connectionType: 'azureRM'
+            azureSubscription: 'shailesh'
+            scriptType: 'ps'
+            scriptLocation: 'inlineScript'
+            inlineScript: |
+              Write-Host "Azure subscription:"
+              az account show --query "{Subscription:id,Tenant:tenantId}" -o table
+
+              Write-Host ""
+              Write-Host "Azure identity:"
+              az account show --query "user" -o json
