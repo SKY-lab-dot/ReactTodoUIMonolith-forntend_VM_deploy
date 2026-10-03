@@ -1,8 +1,8 @@
 trigger:
   branches:
     include:
-    - main
-    - features*
+      - main
+      - features/*
 
 pool:
   name: Azurecicd
@@ -12,8 +12,7 @@ pool:
 # =========================================================
 
 variables:
-- group: dev
-
+  - group: dev
 
 # =========================================================
 # STAGES
@@ -56,6 +55,14 @@ stages:
         backendAzureRmStorageAccountName: '$(TF_BACKEND_STORAGE)'
         backendAzureRmContainerName: '$(TF_BACKEND_CONTAINER)'
         backendAzureRmKey: '$(TF_BACKEND_KEY)'
+
+    - powershell: |
+        Write-Host "===== VARIABLE TEST ====="
+        Write-Host "TF_BACKEND_RG = '$(TF_BACKEND_RG)'"
+        Write-Host "TF_BACKEND_STORAGE = '$(TF_BACKEND_STORAGE)'"
+        Write-Host "TF_BACKEND_CONTAINER = '$(TF_BACKEND_CONTAINER)'"
+        Write-Host "TF_BACKEND_KEY = '$(TF_BACKEND_KEY)'"
+      displayName: 'Check Backend Variables'
 
 
   # =======================================================
@@ -163,3 +170,4 @@ stages:
         provider: 'azurerm'
         command: 'apply'
         environmentServiceNameAzureRM: '$(TF_SERVICE_CONNECTION)'
+
