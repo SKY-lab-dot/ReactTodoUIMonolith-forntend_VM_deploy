@@ -4,45 +4,114 @@ trigger:
 pool:
   name: Azurecicd
 
-steps:
+stages:
 
-- checkout: self
+# =========================================================
+# TERRAFORM PIPELINE
+# =========================================================
 
-- task: TerraformInstaller@1
-  displayName: 'Terraform Install'
-  inputs:
-    terraformVersion: 'latest'
+- stage: Terraform
+  displayName: 'Terraform Pipeline'
 
-- task: TerraformTask@5
-  dependsOn: terraform intall
-  displayName: 'Terraform Init'
-  inputs:
-    provider: 'azurerm'
-    command: 'init'
-    backendServiceArm: 'shailesh'
-    backendAzureRmResourceGroupName: 'sit'
-    backendAzureRmStorageAccountName: 'sitterraformstate2026'
-    backendAzureRmContainerName: 'tfstate'
-    backendAzureRmKey: 'sit.terraform.tfstate'
+  jobs:
 
-- task: TerraformTask@5
-dependsOn: terraform init
-  displayName: 'Terraform Validate'
-  inputs:
-    provider: 'azurerm'
-    command: 'validate'
+  # =======================================================
+  # 1. TERRAFORM INIT
+  # =======================================================
 
-- task: TerraformTask@5
-  dependsOn: validate
-  displayName: 'Terraform Plan'
-  inputs:
-    provider: 'azurerm'
-    command: 'plan'
-    environmentServiceNameAzureRM: 'shailesh'
-- task: TerraformTask@5
-  dependsOn: apply
-  displayName: terraform apply
-  inputs:
-    provider: 'azurerm'
-    command: 'apply'
-    environmentServiceNameAzureRM: 'shailesh'
+  - job: Init
+    displayName: 'Terraform Init'
+
+    steps:
+
+    - checkout: self
+
+    - task: TerraformInstaller@1
+      displayName: 'Terraform Install'
+      inputs:
+        terraformVersion: 'latest'
+
+    - task: TerraformTask@5
+      displayName: 'Terraform Init'
+      inputs:
+        provider: 'azurerm'
+        command: 'init'
+        backendServiceArm: 'shailesh'
+        backendAzureRmResourceGroupName: 'sit'
+        backendAzureRmStorageAccountName: 'sitterraformstate2026'
+        backendAzureRmContainerName: 'tfstate'
+        backendAzureRmKey: 'sit.terraform.tfstate'
+
+
+  # =======================================================
+  # 2. TERRAFORM VALIDATE
+  # =======================================================
+
+  - job: Validate
+    displayName: 'Terraform Validate'
+    dependsOn: Init
+
+    steps:
+
+    - checkout: self
+
+    - task: TerraformInstaller@1
+      displayName: 'Terraform Install'
+      inputs:
+        terraformVersion: 'latest'
+
+    - task: TerraformTask@5
+      displayName: 'Terraform Validate'
+      inputs:
+        provider: 'azurerm'
+        command: 'validate'
+
+
+  # =======================================================
+  # 3. TERRAFORM PLAN
+  # =======================================================
+
+  - job: Plan
+    displayName: 'Terraform Plan'
+    dependsOn: Validate
+
+    steps:
+
+    - checkout: self
+
+    - task: TerraformInstaller@1
+      displayName: 'Terraform Install'
+      inputs:
+        terraformVersion: 'latest'
+
+    - task: TerraformTask@5
+      displayName: 'Terraform Plan'
+      inputs:
+        provider: 'azurerm'
+        command: 'plan'
+        environmentServiceNameAzureRM: 'shailesh'
+
+
+  # =======================================================
+  # 4. TERRAFORM APPLY
+  # =======================================================
+
+  - job: Apply
+    displayName: 'Terraform Apply'
+    dependsOn: Plan
+
+    steps:
+
+    - checkout: self
+
+    - task: TerraformInstaller@1
+      displayName: 'Terraform Install'
+      inputs:
+        terraformVersion: 'latest'
+
+    - task: TerraformTask@5
+      displayName: 'Terraform Apply'
+      inputs:
+        provider: 'azurerm'
+        command: 'apply'
+        environmentServiceNameAzureRM: 'shailesh'
